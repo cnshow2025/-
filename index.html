@@ -53,9 +53,10 @@
     box-shadow: 0 0 2px rgba(0,0,0,.15); transform: translateX(-50%) rotate(45deg); }
   .cell .mark.x::after { transform: translateX(-50%) rotate(-45deg); }
   .cell .mark.x.auto { opacity: .5; }
-  /* 貓：字級依格子大小計算，再由 fitCats() 量測後縮放到佔方框 90% */
-  .cell .mark.cat { display: block; line-height: 1; font-size: calc(var(--cell, 40px) * 0.6);
-    transform-origin: center; will-change: transform; }
+  /* 貓：SVG 剪影填上原本方框的顏色，放貓後方框變透明，貓佔滿整格 */
+  .cell.hascat { background: transparent !important; }
+  .cell .mark.cat { position: absolute; inset: -3%; }
+  .cell .mark.cat svg { width: 100%; height: 100%; display: block; }
   .cell.locked { cursor: default; }
   .cell.wrong { box-shadow: inset 0 0 0 3px var(--accent); }
   .cell.wrong .mark { color: var(--accent); animation: shake .3s; }
@@ -607,20 +608,17 @@ function autoMarked() {
   return set;
 }
 
-// 量測每隻貓的實際大小，縮放到佔方框 90%
-function fitCats() {
-  const first = boardEl.firstChild;
-  if (!first) return;
-  const cellSize = first.getBoundingClientRect().width;
-  boardEl.style.setProperty("--cell", cellSize + "px");
-  for (const el of boardEl.querySelectorAll(".mark.cat")) {
-    el.style.transform = "none";
-    const b = el.getBoundingClientRect();
-    const size = Math.max(b.width, b.height);
-    if (size > 0) el.style.transform = `scale(${(cellSize * 0.9 / size).toFixed(3)})`;
-  }
+// 貓的剪影：頭、耳朵、白色眼睛鼻子鬍鬚，主體填上區域顏色
+function catSvg(color) {
+  return `<svg viewBox="0 0 100 100" aria-hidden="true">
+    <path fill="${color}" d="M16 46 L10 8 L38 26 Q50 22 62 26 L90 8 L84 46 Q94 58 92 72 Q86 96 50 96 Q14 96 8 72 Q6 58 16 46 Z"/>
+    <ellipse cx="35" cy="60" rx="7" ry="9" fill="#fff"/><ellipse cx="65" cy="60" rx="7" ry="9" fill="#fff"/>
+    <ellipse cx="35" cy="61" rx="3" ry="6" fill="${color}"/><ellipse cx="65" cy="61" rx="3" ry="6" fill="${color}"/>
+    <path fill="#fff" d="M44 73 L56 73 L50 80 Z"/>
+    <path stroke="#fff" stroke-width="3" stroke-linecap="round" fill="none"
+      d="M50 80 Q50 86 42 87 M50 80 Q50 86 58 87 M8 68 L30 72 M8 80 L30 78 M92 68 L70 72 M92 80 L70 78"/>
+  </svg>`;
 }
-window.addEventListener("resize", fitCats);
 
 function renderLives() {
   $("lives").innerHTML = Array.from({ length: MAX_MISTAKES }, (_, i) =>
@@ -636,14 +634,14 @@ function render() {
     const span = cell.firstChild;
     span.className = "mark";
     span.textContent = "";
-    if (m === CAT) { span.textContent = "🐱"; span.className = "mark cat"; cats++; }
+    cell.classList.toggle("hascat", m === CAT);
+    if (m === CAT) { span.innerHTML = catSvg(puzzle.colors[puzzle.region[r][c]]); span.className = "mark cat"; cats++; }
     else if (m === WRONG || m === MARK_X) span.className = "mark x";
     else if (auto.has(key)) span.className = "mark x auto";
     cell.classList.toggle("wrong", m === WRONG);
     cell.classList.toggle("locked", m === CAT || m === WRONG);
   }
   renderLives();
-  fitCats();
   if (cats === n) {
     won = true; stopTimer();
     boardEl.classList.add("won");
