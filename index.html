@@ -572,8 +572,8 @@ function tone(ctx, { type = "sine", freq = 440, to = null, dur = 0.1, vol = 0.2,
   node.connect(g); g.connect(ctx.destination);
   osc.start(ctx.currentTime + at); osc.stop(ctx.currentTime + at + dur + 0.05);
 }
-// 語音：用瀏覽器內建的語音合成唸英文稱讚，不需要音檔
-const PRAISE = ["Nice!", "Great!", "Good job!", "Excellent!", "Awesome!", "Well done!"];
+// 語音：用瀏覽器內建的語音合成唸中文稱讚，不需要音檔
+const PRAISE = ["太棒了", "很好", "好厲害", "答對了", "太厲害了", "找到了"];
 let voicesReady = [];
 if ("speechSynthesis" in window) {
   const load = () => { voicesReady = speechSynthesis.getVoices(); };
@@ -583,9 +583,10 @@ function speak(text) {
   if (!$("sound").checked || !("speechSynthesis" in window)) return false;
   try {
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = "en-US"; u.rate = 1.05; u.pitch = 1.15; u.volume = 1;
-    const en = voicesReady.filter(v => v.lang && v.lang.toLowerCase().startsWith("en"));
-    const v = en.find(v => /Samantha|Karen|Moira|Google US English|Microsoft Zira|Microsoft Aria/i.test(v.name)) || en[0];
+    u.lang = "zh-TW"; u.rate = 1.0; u.pitch = 1.1; u.volume = 1;
+    // 優先台灣國語，其次任何中文語音
+    const zh = voicesReady.filter(v => v.lang && /^zh[-_]?(TW|HK|CN)?/i.test(v.lang));
+    const v = zh.find(v => /TW/i.test(v.lang)) || zh.find(v => /Mei-Jia|Meijia|Google 國語|Hanhan|Yating/i.test(v.name)) || zh[0];
     if (v) u.voice = v;
     speechSynthesis.cancel();
     speechSynthesis.speak(u);
