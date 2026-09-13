@@ -26,6 +26,11 @@
   .iconbtn { width: 48px; height: 48px; border-radius: 50%; border: 0; background: var(--card);
     color: var(--text); font-size: 22px; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.06); }
 
+  .lives { background: var(--card); border-radius: 18px; padding: 8px 14px; display: flex; gap: 8px;
+    justify-content: center; margin-bottom: 12px; font-size: 22px; }
+  .lives span { filter: grayscale(1); opacity: .35; }
+  .lives span.lost { filter: none; opacity: 1; }
+
   .rules { background: var(--card); border-radius: 18px; padding: 10px; display: flex; gap: 8px; margin-bottom: 12px; }
   .rule { flex: 1; background: #fbf3ee; border-radius: 12px; padding: 8px 6px; display: flex; align-items: center; gap: 6px;
     font-size: 12px; line-height: 1.25; }
@@ -41,8 +46,9 @@
   .cell:active { transform: scale(.93); }
   .cell .mark { pointer-events: none; }
   .cell .auto { pointer-events: none; opacity: .45; font-size: .7em; font-weight: 700; color: #4a2c2c; }
-  .cell.bad { box-shadow: inset 0 0 0 3px var(--accent); }
-  .cell.bad .mark { animation: shake .3s; }
+  .cell.locked { cursor: default; }
+  .cell.wrong { box-shadow: inset 0 0 0 3px var(--accent); }
+  .cell.wrong .mark { color: var(--accent); font-weight: 700; animation: shake .3s; }
   @keyframes shake { 25% { transform: translateX(-3px);} 75% { transform: translateX(3px);} }
   .board.won .cell { cursor: default; }
 
@@ -54,6 +60,7 @@
 
   .status { text-align: center; margin-top: 12px; min-height: 24px; font-size: 15px; }
   .status.win { color: var(--ok); font-weight: 700; font-size: 18px; }
+  .status.lose { color: var(--accent); font-weight: 700; font-size: 18px; }
 
   .settings { margin-top: 14px; background: var(--card); border-radius: 18px; padding: 12px 14px; font-size: 14px; }
   .settings[hidden] { display: none; }
@@ -75,6 +82,8 @@
   <div class="stat"><div class="label">時間</div><div class="value" id="timer">0:00</div></div>
   <button class="iconbtn" id="btnSettings" title="設定">⚙</button>
 </header>
+
+<div class="lives" id="lives"></div>
 
 <div class="rules">
   <div class="rule"><div class="mini"><i>×</i><i>×</i><i>×</i><i>×</i><i class="c">🐱</i><i>×</i><i>×</i><i>×</i><i>×</i></div>一種顏色一隻貓</div>
@@ -271,14 +280,15 @@ function generateLevel(level) {
 
 const PALETTE = ["#a3e07f", "#a8714e", "#c8788f", "#3fa3b0", "#f2a0e8",
                  "#f9dc7f", "#a9c8ea", "#2f9a5a", "#8b78d8", "#d1aa00"];
-const EMPTY = 0, MARK_X = 1, CAT = 2;
+const EMPTY = 0, MARK_X = 1, CAT = 2, WRONG = 3;   // CAT 與 WRONG 放下後就鎖定
+const MAX_MISTAKES = 5;
 
 const $ = id => document.getElementById(id);
 const boardEl = $("board"), statusEl = $("status"), timerEl = $("timer");
 
 let store = loadStore();
 let level = store.level || 1;
-let puzzle = null, marks = null, won = false;
+let puzzle = null, marks = null, won = false, lost = false, mistakes = 0;
 let startTime = null, elapsed = 0, timerId = null;
 
 function loadStore() {
@@ -293,7 +303,7 @@ function fmt(ms) {
   return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
 }
 function startTimer() {
-  if (timerId || won) return;
+  if (timerId || won || lost) return;
   startTime = Date.now() - elapsed;
   timerId = setInterval(() => { elapsed = Date.now() - startTime; timerEl.textContent = fmt(elapsed); }, 250);
 }
@@ -307,7 +317,7 @@ function loadLevel(lv) {
   setTimeout(() => {
     puzzle = generateLevel(level);
     marks = Array.from({ length: puzzle.n }, () => new Array(puzzle.n).fill(EMPTY));
-    won = false; stopTimer(); elapsed = 0; timerEl.textContent = "0:00";
+    won = lost = false; mistakes = 0; stopTimer(); elapsed = 0; timerEl.textContent = "0:00";
     $("levelNum").textContent = level;
     $("gotoLevel").value = level;
     buildBoard();
@@ -330,35 +340,25 @@ function buildBoard() {
   }
 }
 
-// 點一下：切換叉叉（空 ↔ 叉，貓 → 空）；連點兩下：放貓
+// 點一下：切換叉叉（空 ↔ 叉）；連點兩下：放貓。
+// 放對的貓與放錯的格子都會鎖定，之後點了沒有反應。
 let lastTap = { key: -1, time: 0 };
 boardEl.addEventListener("click", e => {
   const cell = e.target.closest(".cell");
-  if (!cell || won) return;
+  if (!cell || won || lost) return;
   const r = +cell.dataset.r, c = +cell.dataset.c, key = r * puzzle.n + c, now = Date.now();
+  if (marks[r][c] === CAT || marks[r][c] === WRONG) return;
   if (lastTap.key === key && now - lastTap.time < 350) {
-    marks[r][c] = CAT;                       // 第二下：放貓
     lastTap = { key: -1, time: 0 };
+    if (puzzle.solution[r] === c) marks[r][c] = CAT;      // 放對：鎖定
+    else { marks[r][c] = WRONG; mistakes++; }             // 放錯：紅色錯誤並鎖定
   } else {
-    marks[r][c] = marks[r][c] === EMPTY ? MARK_X : EMPTY;  // 第一下：切換叉叉
+    marks[r][c] = marks[r][c] === EMPTY ? MARK_X : EMPTY;
     lastTap = { key, time: now };
   }
   startTimer();
   render();
 });
-
-// 找出違規的貓：同行、同列、同色重複，或相鄰
-function findViolations() {
-  const n = puzzle.n, bad = new Set(), cats = [];
-  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (marks[r][c] === CAT) cats.push([r, c]);
-  for (let i = 0; i < cats.length; i++) for (let j = i + 1; j < cats.length; j++) {
-    const [r1, c1] = cats[i], [r2, c2] = cats[j];
-    const same = r1 === r2 || c1 === c2 || puzzle.region[r1][c1] === puzzle.region[r2][c2];
-    const adj = Math.abs(r1 - r2) <= 1 && Math.abs(c1 - c2) <= 1;
-    if (same || adj) { bad.add(r1 * n + c1); bad.add(r2 * n + c2); }
-  }
-  return { cats, bad };
-}
 
 // 自動標叉：被任何一隻貓「攻擊」到的空格
 function autoMarked() {
@@ -374,21 +374,29 @@ function autoMarked() {
   return set;
 }
 
+function renderLives() {
+  $("lives").innerHTML = Array.from({ length: MAX_MISTAKES }, (_, i) =>
+    `<span class="${i < mistakes ? "lost" : ""}">${i < mistakes ? "😿" : "🐱"}</span>`).join("");
+}
+
 function render() {
   const n = puzzle.n;
-  const { cats, bad } = findViolations();
   const auto = autoMarked();
+  let cats = 0;
   for (const cell of boardEl.children) {
     const r = +cell.dataset.r, c = +cell.dataset.c, m = marks[r][c], key = r * n + c;
     const span = cell.firstChild;
     span.className = "mark";
-    if (m === CAT) span.textContent = "🐱";
+    if (m === CAT) { span.textContent = "🐱"; cats++; }
+    else if (m === WRONG) span.textContent = "✕";
     else if (m === MARK_X) span.textContent = "✕";
     else if (auto.has(key)) { span.textContent = "✕"; span.className = "auto"; }
     else span.textContent = "";
-    cell.classList.toggle("bad", bad.has(key));
+    cell.classList.toggle("wrong", m === WRONG);
+    cell.classList.toggle("locked", m === CAT || m === WRONG);
   }
-  if (cats.length === n && bad.size === 0) {
+  renderLives();
+  if (cats === n) {
     won = true; stopTimer();
     boardEl.classList.add("won");
     statusEl.className = "status win";
@@ -397,10 +405,15 @@ function render() {
     const best = store.done[level];
     store.done[level] = best ? Math.min(best, elapsed) : elapsed;
     saveStore();
+  } else if (mistakes >= MAX_MISTAKES) {
+    lost = true; stopTimer();
+    boardEl.classList.add("won");
+    statusEl.className = "status lose";
+    statusEl.textContent = `😿 錯了 ${MAX_MISTAKES} 次，挑戰失敗，按「重來」再試`;
   } else {
     boardEl.classList.remove("won");
     statusEl.className = "status";
-    statusEl.textContent = bad.size ? "有貓咪違反規則" : `已放 ${cats.length} / ${n} 隻貓`;
+    statusEl.textContent = `已找到 ${cats} / ${n} 隻貓` + (mistakes ? `，錯 ${mistakes} 次` : "");
   }
   updateProgressInfo();
 }
@@ -415,7 +428,7 @@ function updateProgressInfo() {
 
 $("btnPrev").onclick = () => { if (level > 1) loadLevel(level - 1); };
 $("btnNext").onclick = () => loadLevel(level + 1);
-$("btnReset").onclick = () => { marks.forEach(row => row.fill(EMPTY)); won = false; stopTimer(); elapsed = 0; timerEl.textContent = "0:00"; render(); };
+$("btnReset").onclick = () => { marks.forEach(row => row.fill(EMPTY)); won = lost = false; mistakes = 0; stopTimer(); elapsed = 0; timerEl.textContent = "0:00"; render(); };
 $("btnSettings").onclick = () => { $("settings").hidden = !$("settings").hidden; };
 $("btnGoto").onclick = () => loadLevel(+$("gotoLevel").value || 1);
 $("autoMark").onchange = () => { store.autoMark = $("autoMark").checked; saveStore(); render(); };
