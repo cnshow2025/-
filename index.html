@@ -58,6 +58,19 @@
   .cell.hascat { background: var(--card) !important; box-shadow: inset 0 0 0 3px var(--tile); }
   .cell .mark.cat { position: absolute; inset: 6%; }
   .cell .mark.cat svg { width: 100%; height: 100%; display: block; }
+  /* 貓的眼珠左右轉、偶爾眨眼 */
+  .cat .pupils { transform-box: fill-box; transform-origin: center; animation: look 5s ease-in-out infinite; }
+  .cat .eyes { transform-box: fill-box; transform-origin: center; animation: blink 6s ease-in-out infinite; }
+  @keyframes look {
+    0%, 18% { transform: translateX(0); }
+    26%, 44% { transform: translateX(-3px); }
+    52%, 70% { transform: translateX(3px); }
+    78%, 100% { transform: translateX(0); }
+  }
+  @keyframes blink {
+    0%, 90%, 100% { transform: scaleY(1); }
+    94% { transform: scaleY(0.12); }
+  }
   .cell.locked { cursor: default; }
   .cell.wrong { box-shadow: inset 0 0 0 3px var(--accent); }
   .cell.wrong .mark { animation: shake .3s; }
@@ -157,6 +170,7 @@
     <span class="row"><input type="number" id="gotoLevel" min="1" max="9999" value="1"><button class="btn" id="btnGoto" style="flex:none;padding:6px 12px">前往</button></span>
   </label>
   <label><span>自動標叉（放貓後自動在同行、同列、同色與相鄰格標叉）</span><input type="checkbox" id="autoMark" checked></label>
+  <label><span>音效</span><input type="checkbox" id="sound" checked></label>
   <div class="small" id="progressInfo"></div>
   <label><span class="small">清除所有進度</span><button class="btn" id="btnClear" style="flex:none;padding:6px 12px;font-size:13px">清除</button></label>
 </div>
@@ -536,6 +550,52 @@ function saveStore() {
   try { localStorage.setItem("findcat", JSON.stringify(store)); } catch {}
 }
 
+/* ---------------- 音效（Web Audio 合成，不需要音檔） ---------------- */
+let audioCtx = null;
+function audio() {
+  if (!$("sound").checked) return null;
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    return audioCtx;
+  } catch { return null; }
+}
+function tone(ctx, { type = "sine", freq = 440, to = null, dur = 0.1, vol = 0.2, at = 0, lowpass = null }) {
+  const osc = ctx.createOscillator(), g = ctx.createGain();
+  osc.type = type; osc.frequency.setValueAtTime(freq, ctx.currentTime + at);
+  if (to) osc.frequency.exponentialRampToValueAtTime(to, ctx.currentTime + at + dur);
+  g.gain.setValueAtTime(0.0001, ctx.currentTime + at);
+  g.gain.exponentialRampToValueAtTime(vol, ctx.currentTime + at + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + at + dur);
+  let node = osc;
+  if (lowpass) { const f = ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = lowpass; osc.connect(f); node = f; }
+  node.connect(g); g.connect(ctx.destination);
+  osc.start(ctx.currentTime + at); osc.stop(ctx.currentTime + at + dur + 0.05);
+}
+const sfx = {
+  click() { const c = audio(); if (c) tone(c, { type: "triangle", freq: 900, to: 500, dur: 0.06, vol: 0.15 }); },
+  meow() {
+    const c = audio(); if (!c) return;
+    // 喵：鋸齒波做基音，加顫音，音高先上揚再下滑
+    const osc = c.createOscillator(), g = c.createGain(), f = c.createBiquadFilter(), lfo = c.createOscillator(), lg = c.createGain();
+    const t = c.currentTime;
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(520, t);
+    osc.frequency.exponentialRampToValueAtTime(880, t + 0.12);
+    osc.frequency.exponentialRampToValueAtTime(700, t + 0.3);
+    osc.frequency.exponentialRampToValueAtTime(420, t + 0.55);
+    lfo.frequency.value = 22; lg.gain.value = 18; lfo.connect(lg); lg.connect(osc.frequency);
+    f.type = "lowpass"; f.frequency.setValueAtTime(1500, t); f.frequency.exponentialRampToValueAtTime(900, t + 0.55); f.Q.value = 4;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.28, t + 0.05);
+    g.gain.setValueAtTime(0.28, t + 0.3); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.58);
+    osc.connect(f); f.connect(g); g.connect(c.destination);
+    osc.start(t); lfo.start(t); osc.stop(t + 0.6); lfo.stop(t + 0.6);
+  },
+  wrong() { const c = audio(); if (c) { tone(c, { type: "square", freq: 200, to: 140, dur: 0.18, vol: 0.12, lowpass: 800 }); } },
+  win() { const c = audio(); if (c) [523, 659, 784, 1047].forEach((f, i) => tone(c, { freq: f, dur: 0.18, vol: 0.18, at: i * 0.12 })); },
+  lose() { const c = audio(); if (c) [392, 330, 262].forEach((f, i) => tone(c, { type: "triangle", freq: f, dur: 0.25, vol: 0.15, at: i * 0.2 })); },
+};
+
 /* ---------------- 參賽者與積分 ---------------- */
 const BASE_SCORE = { 1: 100, 2: 200, 3: 300 };
 function calcScore(tier, mistakes, ms) {
@@ -631,10 +691,11 @@ boardEl.addEventListener("click", e => {
   if (marks[r][c] === CAT || marks[r][c] === WRONG) return;
   if (lastTap.key === key && now - lastTap.time < 350) {
     lastTap = { key: -1, time: 0 };
-    if (puzzle.solution[r] === c) marks[r][c] = CAT;      // 放對：鎖定
-    else { marks[r][c] = WRONG; mistakes++; }             // 放錯：紅色錯誤並鎖定
+    if (puzzle.solution[r] === c) { marks[r][c] = CAT; sfx.meow(); }      // 放對：鎖定，喵一聲
+    else { marks[r][c] = WRONG; mistakes++; sfx.wrong(); }              // 放錯：紅色錯誤並鎖定
   } else {
     marks[r][c] = marks[r][c] === EMPTY ? MARK_X : EMPTY;
+    sfx.click();
     lastTap = { key, time: now };
   }
   startTimer();
@@ -664,6 +725,7 @@ window.addEventListener("pointermove", e => {
   if (!cell || cell === drag.last) return;
   if (!drag.active) { drag.active = true; dragApply(drag.start); }   // 離開起點才算拖曳
   dragApply(cell);
+  sfx.click();
   drag.last = cell;
   startTimer();
   render();
@@ -691,10 +753,15 @@ function autoMarked() {
 
 // 貓的剪影：頭、耳朵、白色眼睛鼻子鬍鬚，主體填上區域顏色
 function catSvg(color) {
-  return `<svg viewBox="0 0 100 100" aria-hidden="true">
+  const delay = -(Math.random() * 5).toFixed(2);   // 每隻貓的眼睛動作不同步
+  return `<svg viewBox="0 0 100 100" aria-hidden="true" class="cat">
     <path fill="${color}" d="M16 46 L10 8 L38 26 Q50 22 62 26 L90 8 L84 46 Q94 58 92 72 Q86 96 50 96 Q14 96 8 72 Q6 58 16 46 Z"/>
-    <ellipse cx="35" cy="60" rx="7" ry="9" fill="#fff"/><ellipse cx="65" cy="60" rx="7" ry="9" fill="#fff"/>
-    <ellipse cx="35" cy="61" rx="3" ry="6" fill="${color}"/><ellipse cx="65" cy="61" rx="3" ry="6" fill="${color}"/>
+    <g class="eyes" style="animation-delay:${delay}s">
+      <ellipse cx="35" cy="60" rx="7" ry="9" fill="#fff"/><ellipse cx="65" cy="60" rx="7" ry="9" fill="#fff"/>
+      <g class="pupils" style="animation-delay:${delay}s">
+        <ellipse cx="35" cy="61" rx="3" ry="6" fill="${color}"/><ellipse cx="65" cy="61" rx="3" ry="6" fill="${color}"/>
+      </g>
+    </g>
     <path fill="#fff" d="M44 73 L56 73 L50 80 Z"/>
     <path stroke="#fff" stroke-width="3" stroke-linecap="round" fill="none"
       d="M50 80 Q50 86 42 87 M50 80 Q50 86 58 87 M8 68 L30 72 M8 80 L30 78 M92 68 L70 72 M92 80 L70 78"/>
@@ -724,7 +791,7 @@ function render() {
   }
   renderLives();
   if (cats === n) {
-    won = true; stopTimer();
+    won = true; stopTimer(); sfx.win();
     boardEl.classList.add("won");
     statusEl.className = "status win";
     const score = calcScore(puzzle.tier, mistakes, elapsed);
@@ -738,7 +805,7 @@ function render() {
     }
     statusEl.textContent = msg;
   } else if (mistakes >= MAX_MISTAKES) {
-    lost = true; stopTimer();
+    lost = true; stopTimer(); sfx.lose();
     boardEl.classList.add("won");
     statusEl.className = "status lose";
     statusEl.textContent = `😿 錯了 ${MAX_MISTAKES} 次，挑戰失敗，按「重來」再試`;
@@ -765,6 +832,7 @@ $("btnReset").onclick = () => { marks.forEach(row => row.fill(EMPTY)); won = los
 $("btnSettings").onclick = () => { $("settings").hidden = !$("settings").hidden; };
 $("btnGoto").onclick = () => loadLevel(+$("gotoLevel").value || 1);
 $("autoMark").onchange = () => { store.autoMark = $("autoMark").checked; saveStore(); render(); };
+$("sound").onchange = () => { store.sound = $("sound").checked; saveStore(); if (store.sound) sfx.click(); };
 $("btnClear").onclick = () => { if (confirm("確定清除所有參賽者與進度？")) { store = { players: {} }; saveStore(); renderPlayer(); $("settings").hidden = true; openBoard(); } };
 
 $("btnBoard").onclick = openBoard;
@@ -792,6 +860,7 @@ $("ranks").addEventListener("click", e => {
 });
 
 if (store.autoMark === false) $("autoMark").checked = false;
+if (store.sound === false) $("sound").checked = false;
 renderPlayer();
 if (currentPlayer()) loadLevel(currentPlayer().level);
 else { loadLevel(1); openBoard(); }
