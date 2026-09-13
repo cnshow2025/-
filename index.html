@@ -35,7 +35,7 @@
   .rule .mini i.c { background: #f3e2d9; }
 
   .boardwrap { background: var(--card); border-radius: 18px; padding: 12px; }
-  .board { display: grid; gap: var(--tile-gap); width: 100%; aspect-ratio: 1; }
+  .board { display: grid; gap: var(--tile-gap); width: 100%; aspect-ratio: 1; touch-action: manipulation; }
   .cell { border-radius: 8px; position: relative; display: flex; align-items: center; justify-content: center;
     cursor: pointer; font-size: clamp(14px, 5vw, 30px); line-height: 1; transition: transform .08s; }
   .cell:active { transform: scale(.93); }
@@ -330,12 +330,19 @@ function buildBoard() {
   }
 }
 
-// 點一下：空 → 叉 → 貓 → 空
+// 點一下：切換叉叉（空 ↔ 叉，貓 → 空）；連點兩下：放貓
+let lastTap = { key: -1, time: 0 };
 boardEl.addEventListener("click", e => {
   const cell = e.target.closest(".cell");
   if (!cell || won) return;
-  const r = +cell.dataset.r, c = +cell.dataset.c;
-  marks[r][c] = (marks[r][c] + 1) % 3;
+  const r = +cell.dataset.r, c = +cell.dataset.c, key = r * puzzle.n + c, now = Date.now();
+  if (lastTap.key === key && now - lastTap.time < 350) {
+    marks[r][c] = CAT;                       // 第二下：放貓
+    lastTap = { key: -1, time: 0 };
+  } else {
+    marks[r][c] = marks[r][c] === EMPTY ? MARK_X : EMPTY;  // 第一下：切換叉叉
+    lastTap = { key, time: now };
+  }
   startTimer();
   render();
 });
