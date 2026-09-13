@@ -134,13 +134,13 @@
 
 <div class="controls">
   <button class="btn" id="btnReset">重來</button>
-  <button class="btn" id="btnBoard">🏆 排行榜</button>
+  <button class="btn" id="btnBoard">👤 參賽者</button>
   <button class="btn primary" id="btnNext">下一關 →</button>
 </div>
 
 <div class="modal" id="modal" hidden>
   <div class="sheet">
-    <h2>🏆 排行榜</h2>
+    <h2>👤 參賽者</h2>
     <div class="hint" id="modalHint">點名字切換參賽者。積分：簡單 100 / 中等 200 / 困難 300，每錯一次 −20，1 分鐘內完成最多再 +50，每關只計最高分。</div>
     <div class="addrow">
       <input type="text" id="newName" maxlength="12" placeholder="新參賽者名字" autocomplete="off">
@@ -555,13 +555,13 @@ function renderPlayer() {
   $("playerTotal").textContent = p ? totalOf(p) : 0;
 }
 function renderRanks() {
+  // 依加入順序列出，不排名
   const rows = Object.entries(store.players)
-    .map(([name, p]) => ({ name, total: totalOf(p), cleared: Object.keys(p.done || {}).length }))
-    .sort((a, b) => b.total - a.total || b.cleared - a.cleared || a.name.localeCompare(b.name));
+    .map(([name, p]) => ({ name, total: totalOf(p), cleared: Object.keys(p.done || {}).length }));
   $("ranks").innerHTML = rows.length
-    ? `<tr><th>#</th><th>參賽者</th><th class="num">過關</th><th class="num">積分</th><th></th></tr>` +
-      rows.map((r, i) => `<tr data-name="${r.name.replace(/"/g, "&quot;")}" class="${r.name === store.current ? "me" : ""}">
-        <td>${i + 1}</td><td>${r.name.replace(/</g, "&lt;")}</td><td class="num">${r.cleared}</td><td class="num">${r.total}</td>
+    ? `<tr><th>參賽者</th><th class="num">過關</th><th class="num">積分</th><th></th></tr>` +
+      rows.map(r => `<tr data-name="${r.name.replace(/"/g, "&quot;")}" class="${r.name === store.current ? "me" : ""}">
+        <td>${r.name.replace(/</g, "&lt;")}</td><td class="num">${r.cleared}</td><td class="num">${r.total}</td>
         <td><button class="del" title="刪除">✕</button></td></tr>`).join("")
     : `<tr><td class="hint">還沒有參賽者，請先加入一位</td></tr>`;
   $("btnClose").disabled = !currentPlayer();
