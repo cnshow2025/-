@@ -82,6 +82,28 @@
   .settings .row { display: flex; gap: 8px; align-items: center; }
   .settings .small { color: var(--muted); font-size: 12px; }
 
+  .player { text-align: center; font-size: 14px; color: var(--muted); margin: -6px 0 10px; }
+  .player b { color: var(--text); }
+
+  .modal { position: fixed; inset: 0; background: rgba(60,30,30,.35); display: flex; align-items: center;
+    justify-content: center; padding: 16px; z-index: 20; }
+  .modal[hidden] { display: none; }
+  .sheet { background: var(--card); border-radius: 20px; padding: 18px 16px; width: 100%; max-width: 420px;
+    max-height: 85vh; overflow: auto; }
+  .sheet h2 { margin: 0 0 4px; font-size: 20px; text-align: center; }
+  .sheet .hint { text-align: center; color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+  .addrow { display: flex; gap: 8px; margin-bottom: 12px; }
+  .addrow input { flex: 1; font-size: 16px; padding: 10px 12px; border: 1px solid #e6d6cd; border-radius: 12px; min-width: 0; }
+  .ranks { width: 100%; border-collapse: collapse; font-size: 15px; }
+  .ranks th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 4px 6px; }
+  .ranks td { padding: 8px 6px; border-top: 1px solid #f3e7e0; }
+  .ranks tr.me td { background: #fbf3ee; font-weight: 700; }
+  .ranks td.num { text-align: right; white-space: nowrap; }
+  .ranks tr[data-name] { cursor: pointer; }
+  .ranks .del { border: 0; background: none; color: var(--muted); font-size: 16px; cursor: pointer; padding: 2px 6px; }
+  .sheet .close { margin-top: 12px; width: 100%; }
+  .scorebox { text-align: center; margin: 6px 0 0; font-size: 14px; color: var(--muted); }
+
   .overlay { position: fixed; inset: 0; background: rgba(247,239,233,.85); display: flex; align-items: center;
     justify-content: center; font-size: 20px; font-weight: 700; z-index: 10; }
   .overlay[hidden] { display: none; }
@@ -95,6 +117,8 @@
   <div class="stat"><div class="label">時間</div><div class="value" id="timer">0:00</div></div>
   <button class="iconbtn" id="btnSettings" title="設定">⚙</button>
 </header>
+
+<div class="player">參賽者：<b id="playerName">—</b> · 總積分 <b id="playerTotal">0</b></div>
 
 <div class="lives" id="lives"></div>
 
@@ -110,7 +134,21 @@
 
 <div class="controls">
   <button class="btn" id="btnReset">重來</button>
+  <button class="btn" id="btnBoard">🏆 排行榜</button>
   <button class="btn primary" id="btnNext">下一關 →</button>
+</div>
+
+<div class="modal" id="modal" hidden>
+  <div class="sheet">
+    <h2>🏆 排行榜</h2>
+    <div class="hint" id="modalHint">點名字切換參賽者。積分：簡單 100 / 中等 200 / 困難 300，每錯一次 −20，1 分鐘內完成最多再 +50，每關只計最高分。</div>
+    <div class="addrow">
+      <input type="text" id="newName" maxlength="12" placeholder="新參賽者名字" autocomplete="off">
+      <button class="btn" id="btnAdd" style="flex:none;padding:8px 14px">加入</button>
+    </div>
+    <table class="ranks" id="ranks"></table>
+    <button class="btn primary close" id="btnClose">繼續遊戲</button>
+  </div>
 </div>
 
 <div class="settings" id="settings" hidden>
@@ -484,7 +522,8 @@ const $ = id => document.getElementById(id);
 const boardEl = $("board"), statusEl = $("status"), timerEl = $("timer");
 
 let store = loadStore();
-let level = store.level || 1;
+if (!store.players) store.players = {};
+let level = 1;
 let puzzle = null, marks = null, won = false, lost = false, mistakes = 0;
 let startTime = null, elapsed = 0, timerId = null;
 
@@ -494,6 +533,41 @@ function loadStore() {
 function saveStore() {
   try { localStorage.setItem("findcat", JSON.stringify(store)); } catch {}
 }
+
+/* ---------------- 參賽者與積分 ---------------- */
+const BASE_SCORE = { 1: 100, 2: 200, 3: 300 };
+function calcScore(tier, mistakes, ms) {
+  const bonus = Math.round(50 * Math.max(0, 60000 - ms) / 60000);   // 1 分鐘內完成，越快加越多
+  return Math.max(0, BASE_SCORE[tier] - 20 * mistakes + bonus);
+}
+function currentPlayer() { return store.current && store.players[store.current] ? store.players[store.current] : null; }
+function totalOf(p) { return Object.values(p.done || {}).reduce((s, d) => s + (d.score || 0), 0); }
+function addPlayer(name) {
+  name = name.trim();
+  if (!name) return false;
+  if (!store.players[name]) store.players[name] = { done: {}, level: 1 };
+  store.current = name; saveStore();
+  return true;
+}
+function renderPlayer() {
+  const p = currentPlayer();
+  $("playerName").textContent = store.current || "—";
+  $("playerTotal").textContent = p ? totalOf(p) : 0;
+}
+function renderRanks() {
+  const rows = Object.entries(store.players)
+    .map(([name, p]) => ({ name, total: totalOf(p), cleared: Object.keys(p.done || {}).length }))
+    .sort((a, b) => b.total - a.total || b.cleared - a.cleared || a.name.localeCompare(b.name));
+  $("ranks").innerHTML = rows.length
+    ? `<tr><th>#</th><th>參賽者</th><th class="num">過關</th><th class="num">積分</th><th></th></tr>` +
+      rows.map((r, i) => `<tr data-name="${r.name.replace(/"/g, "&quot;")}" class="${r.name === store.current ? "me" : ""}">
+        <td>${i + 1}</td><td>${r.name.replace(/</g, "&lt;")}</td><td class="num">${r.cleared}</td><td class="num">${r.total}</td>
+        <td><button class="del" title="刪除">✕</button></td></tr>`).join("")
+    : `<tr><td class="hint">還沒有參賽者，請先加入一位</td></tr>`;
+  $("btnClose").disabled = !currentPlayer();
+}
+function openBoard() { renderRanks(); $("modal").hidden = false; if (!currentPlayer()) $("newName").focus(); }
+function closeBoard() { if (currentPlayer()) $("modal").hidden = true; }
 
 function fmt(ms) {
   const s = Math.floor(ms / 1000);
@@ -508,7 +582,8 @@ function stopTimer() { clearInterval(timerId); timerId = null; }
 
 function loadLevel(lv) {
   level = Math.max(1, lv);
-  store.level = level; saveStore();
+  const p = currentPlayer();
+  if (p) { p.level = level; saveStore(); }
   $("overlay").hidden = false;
   // 讓「產生關卡中…」先畫出來再開始算
   setTimeout(() => {
@@ -546,6 +621,7 @@ let lastTap = { key: -1, time: 0 };
 let suppressClick = false;   // 剛完成一次拖曳時，忽略隨後的 click
 boardEl.addEventListener("click", e => {
   if (suppressClick) { suppressClick = false; return; }
+  if (!currentPlayer()) { openBoard(); return; }
   const cell = e.target.closest(".cell");
   if (!cell || won || lost) return;
   const r = +cell.dataset.r, c = +cell.dataset.c, key = r * puzzle.n + c, now = Date.now();
@@ -575,7 +651,7 @@ function dragApply(cell) {
 }
 boardEl.addEventListener("pointerdown", e => {
   const cell = e.target.closest(".cell");
-  if (!cell || won || lost) return;
+  if (!cell || won || lost || !currentPlayer()) return;
   const r = +cell.dataset.r, c = +cell.dataset.c;
   drag = { start: cell, last: cell, active: false, mode: marks[r][c] === MARK_X ? EMPTY : MARK_X };
 });
@@ -648,11 +724,16 @@ function render() {
     won = true; stopTimer();
     boardEl.classList.add("won");
     statusEl.className = "status win";
-    statusEl.textContent = `🎉 過關！用時 ${fmt(elapsed)}`;
-    store.done = store.done || {};
-    const best = store.done[level];
-    store.done[level] = best ? Math.min(best, elapsed) : elapsed;
-    saveStore();
+    const score = calcScore(puzzle.tier, mistakes, elapsed);
+    const p = currentPlayer();
+    let msg = `🎉 過關！用時 ${fmt(elapsed)}，得 ${score} 分`;
+    if (p) {
+      const prev = p.done[level];
+      if (!prev || score > prev.score) { p.done[level] = { score, time: elapsed, mistakes }; msg += prev ? "，刷新本關最高分！" : ""; }
+      else msg += `（本關最高 ${prev.score} 分）`;
+      saveStore(); renderPlayer();
+    }
+    statusEl.textContent = msg;
   } else if (mistakes >= MAX_MISTAKES) {
     lost = true; stopTimer();
     boardEl.classList.add("won");
@@ -667,10 +748,11 @@ function render() {
 }
 
 function updateProgressInfo() {
-  const done = Object.keys(store.done || {}).length;
-  const best = (store.done || {})[level];
+  const p = currentPlayer();
+  const done = p ? Object.keys(p.done).length : 0;
+  const best = p ? p.done[level] : null;
   $("progressInfo").textContent =
-    `已完成 ${done} 關。` + (best ? `本關最佳 ${fmt(best)}。` : "") +
+    `已完成 ${done} 關。` + (best ? `本關最高 ${best.score} 分（${fmt(best.time)}）。` : "") +
     ` 本關 ${TIER_NAME[puzzle.tier]} ${puzzle.n}×${puzzle.n}，產生器嘗試 ${puzzle.attempts} 次找到符合難度的唯一解。`;
 }
 
@@ -680,10 +762,36 @@ $("btnReset").onclick = () => { marks.forEach(row => row.fill(EMPTY)); won = los
 $("btnSettings").onclick = () => { $("settings").hidden = !$("settings").hidden; };
 $("btnGoto").onclick = () => loadLevel(+$("gotoLevel").value || 1);
 $("autoMark").onchange = () => { store.autoMark = $("autoMark").checked; saveStore(); render(); };
-$("btnClear").onclick = () => { if (confirm("確定清除所有進度？")) { store = {}; saveStore(); loadLevel(1); } };
+$("btnClear").onclick = () => { if (confirm("確定清除所有參賽者與進度？")) { store = { players: {} }; saveStore(); renderPlayer(); $("settings").hidden = true; openBoard(); } };
+
+$("btnBoard").onclick = openBoard;
+$("btnClose").onclick = closeBoard;
+$("btnAdd").onclick = () => {
+  if (!addPlayer($("newName").value)) return;
+  $("newName").value = "";
+  renderPlayer(); renderRanks();
+  loadLevel(currentPlayer().level);
+};
+$("newName").addEventListener("keydown", e => { if (e.key === "Enter") $("btnAdd").click(); });
+$("ranks").addEventListener("click", e => {
+  const row = e.target.closest("tr[data-name]");
+  if (!row) return;
+  const name = row.dataset.name;
+  if (e.target.closest(".del")) {
+    if (!confirm(`刪除參賽者「${name}」與其成績？`)) return;
+    delete store.players[name];
+    if (store.current === name) store.current = Object.keys(store.players)[0] || null;
+    saveStore(); renderPlayer(); renderRanks();
+    if (currentPlayer()) loadLevel(currentPlayer().level);
+    return;
+  }
+  if (name !== store.current) { store.current = name; saveStore(); renderPlayer(); renderRanks(); loadLevel(currentPlayer().level); }
+});
 
 if (store.autoMark === false) $("autoMark").checked = false;
-loadLevel(level);
+renderPlayer();
+if (currentPlayer()) loadLevel(currentPlayer().level);
+else { loadLevel(1); openBoard(); }
 </script>
 </body>
 </html>
