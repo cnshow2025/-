@@ -47,9 +47,10 @@
   .cell:active { transform: scale(.93); }
   .cell .mark { pointer-events: none; }
   /* 叉叉：用兩條斜線畫，佔方框 90%，隨格子大小縮放 */
-  .cell .mark.x { position: absolute; inset: 5%; color: #fff; }
-  .cell .mark.x::before, .cell .mark.x::after { content: ""; position: absolute; left: 50%; top: -20.7%;
-    width: 16%; height: 141.4%; background: currentColor; border-radius: 999px;
+  /* 叉叉縮在方框中央（約佔 55%），四周留出色塊 */
+  .cell .mark.x { position: absolute; inset: 22%; color: #fff; }
+  .cell .mark.x::before, .cell .mark.x::after { content: ""; position: absolute; left: 50%; top: -12%;
+    width: 22%; height: 124%; background: currentColor; border-radius: 999px;
     transform: translateX(-50%) rotate(45deg); }
   .cell .mark.x::after { transform: translateX(-50%) rotate(-45deg); }
   .cell .mark.x.auto { opacity: 1; }
