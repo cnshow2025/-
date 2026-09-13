@@ -52,6 +52,9 @@
     transform: translateX(-50%) rotate(45deg); }
   .cell .mark.x::after { transform: translateX(-50%) rotate(-45deg); }
   .cell .mark.x.auto { opacity: .4; }
+  /* 貓：字級依格子大小計算，再由 fitCats() 量測後縮放到佔方框 90% */
+  .cell .mark.cat { display: block; line-height: 1; font-size: calc(var(--cell, 40px) * 0.6);
+    transform-origin: center; will-change: transform; }
   .cell.locked { cursor: default; }
   .cell.wrong { box-shadow: inset 0 0 0 3px var(--accent); }
   .cell.wrong .mark { color: var(--accent); animation: shake .3s; }
@@ -436,6 +439,21 @@ function autoMarked() {
   return set;
 }
 
+// 量測每隻貓的實際大小，縮放到佔方框 90%
+function fitCats() {
+  const first = boardEl.firstChild;
+  if (!first) return;
+  const cellSize = first.getBoundingClientRect().width;
+  boardEl.style.setProperty("--cell", cellSize + "px");
+  for (const el of boardEl.querySelectorAll(".mark.cat")) {
+    el.style.transform = "none";
+    const b = el.getBoundingClientRect();
+    const size = Math.max(b.width, b.height);
+    if (size > 0) el.style.transform = `scale(${(cellSize * 0.9 / size).toFixed(3)})`;
+  }
+}
+window.addEventListener("resize", fitCats);
+
 function renderLives() {
   $("lives").innerHTML = Array.from({ length: MAX_MISTAKES }, (_, i) =>
     `<span class="${i < mistakes ? "lost" : ""}">${i < mistakes ? "😿" : "🐱"}</span>`).join("");
@@ -450,13 +468,14 @@ function render() {
     const span = cell.firstChild;
     span.className = "mark";
     span.textContent = "";
-    if (m === CAT) { span.textContent = "🐱"; cats++; }
+    if (m === CAT) { span.textContent = "🐱"; span.className = "mark cat"; cats++; }
     else if (m === WRONG || m === MARK_X) span.className = "mark x";
     else if (auto.has(key)) span.className = "mark x auto";
     cell.classList.toggle("wrong", m === WRONG);
     cell.classList.toggle("locked", m === CAT || m === WRONG);
   }
   renderLives();
+  fitCats();
   if (cats === n) {
     won = true; stopTimer();
     boardEl.classList.add("won");
