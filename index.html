@@ -591,7 +591,9 @@ const sfx = {
     osc.connect(f); f.connect(g); g.connect(c.destination);
     osc.start(t); lfo.start(t); osc.stop(t + 0.6); lfo.stop(t + 0.6);
   },
-  wrong() { const c = audio(); if (c) { tone(c, { type: "square", freq: 200, to: 140, dur: 0.18, vol: 0.12, lowpass: 800 }); } },
+  // 放錯：兩聲下降的「嘟嘟」，音高夠高手機喇叭才聽得到
+  wrong() { const c = audio(); if (c) { tone(c, { type: "square", freq: 420, to: 300, dur: 0.14, vol: 0.22, lowpass: 2500 });
+                                       tone(c, { type: "square", freq: 300, to: 200, dur: 0.22, vol: 0.22, at: 0.16, lowpass: 2500 }); } },
   win() { const c = audio(); if (c) [523, 659, 784, 1047].forEach((f, i) => tone(c, { freq: f, dur: 0.18, vol: 0.18, at: i * 0.12 })); },
   lose() { const c = audio(); if (c) [392, 330, 262].forEach((f, i) => tone(c, { type: "triangle", freq: f, dur: 0.25, vol: 0.15, at: i * 0.2 })); },
 };
