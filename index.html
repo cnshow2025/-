@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>找貓</title>
+<style>
+  :root {
+    --bg: #f7efe9;
+    --card: #ffffff;
+    --text: #8a5a5a;
+    --muted: #b58f8f;
+    --accent: #e05a5a;
+    --ok: #2f9a5a;
+    --tile-gap: 6px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif; }
+  body { padding: 12px 16px 32px; max-width: 520px; margin: 0 auto; user-select: none; }
+
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  header .stat { text-align: center; }
+  header .stat .label { font-size: 15px; font-weight: 600; }
+  header .stat .value { font-size: 30px; font-weight: 700; line-height: 1.05; }
+  .iconbtn { width: 48px; height: 48px; border-radius: 50%; border: 0; background: var(--card);
+    color: var(--text); font-size: 22px; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.06); }
+
+  .rules { background: var(--card); border-radius: 18px; padding: 10px; display: flex; gap: 8px; margin-bottom: 12px; }
+  .rule { flex: 1; background: #fbf3ee; border-radius: 12px; padding: 8px 6px; display: flex; align-items: center; gap: 6px;
+    font-size: 12px; line-height: 1.25; }
+  .rule .mini { display: grid; grid-template-columns: repeat(3, 10px); gap: 1px; flex: none; }
+  .rule .mini i { width: 10px; height: 10px; border-radius: 2px; background: #e6d6cd; display: block;
+    font-style: normal; font-size: 8px; line-height: 10px; text-align: center; color: #8a5a5a; }
+  .rule .mini i.c { background: #f3e2d9; }
+
+  .boardwrap { background: var(--card); border-radius: 18px; padding: 12px; }
+  .board { display: grid; gap: var(--tile-gap); width: 100%; aspect-ratio: 1; }
+  .cell { border-radius: 8px; position: relative; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: clamp(14px, 5vw, 30px); line-height: 1; transition: transform .08s; }
+  .cell:active { transform: scale(.93); }
+  .cell .mark { pointer-events: none; }
+  .cell .auto { pointer-events: none; opacity: .45; font-size: .7em; font-weight: 700; color: #4a2c2c; }
+  .cell.bad { box-shadow: inset 0 0 0 3px var(--accent); }
+  .cell.bad .mark { animation: shake .3s; }
+  @keyframes shake { 25% { transform: translateX(-3px);} 75% { transform: translateX(3px);} }
+  .board.won .cell { cursor: default; }
+
+  .controls { display: flex; gap: 10px; margin-top: 14px; }
+  .btn { flex: 1; border: 0; border-radius: 14px; padding: 12px 8px; font-size: 16px; font-weight: 600;
+    background: var(--card); color: var(--text); cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.06); }
+  .btn.primary { background: var(--text); color: #fff; }
+  .btn:disabled { opacity: .4; cursor: default; }
+
+  .status { text-align: center; margin-top: 12px; min-height: 24px; font-size: 15px; }
+  .status.win { color: var(--ok); font-weight: 700; font-size: 18px; }
+
+  .settings { margin-top: 14px; background: var(--card); border-radius: 18px; padding: 12px 14px; font-size: 14px; }
+  .settings[hidden] { display: none; }
+  .settings label { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; gap: 10px; }
+  .settings input[type=number] { width: 80px; font-size: 16px; padding: 4px 8px; border: 1px solid #e6d6cd; border-radius: 8px; }
+  .settings .row { display: flex; gap: 8px; align-items: center; }
+  .settings .small { color: var(--muted); font-size: 12px; }
+
+  .overlay { position: fixed; inset: 0; background: rgba(247,239,233,.85); display: flex; align-items: center;
+    justify-content: center; font-size: 20px; font-weight: 700; z-index: 10; }
+  .overlay[hidden] { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <button class="iconbtn" id="btnPrev" title="上一關">←</button>
+  <div class="stat"><div class="label">關卡</div><div class="value" id="levelNum">1</div></div>
+  <div class="stat"><div class="label">時間</div><div class="value" id="timer">0:00</div></div>
+  <button class="iconbtn" id="btnSettings" title="設定">⚙</button>
+</header>
+
+<div class="rules">
+  <div class="rule"><div class="mini"><i>×</i><i>×</i><i>×</i><i>×</i><i class="c">🐱</i><i>×</i><i>×</i><i>×</i><i>×</i></div>一種顏色一隻貓</div>
+  <div class="rule"><div class="mini"><i>×</i><i class="c">🐱</i><i>×</i><i>×</i><i>×</i><i>×</i><i>×</i><i>×</i><i>×</i></div>每行每列各一隻貓</div>
+  <div class="rule"><div class="mini"><i>×</i><i>×</i><i>×</i><i>×</i><i>🐱</i><i>×</i><i>×</i><i>×</i><i>×</i></div>貓咪不能相鄰</div>
+</div>
+
+<div class="boardwrap"><div class="board" id="board"></div></div>
+
+<div class="status" id="status"></div>
+
+<div class="controls">
+  <button class="btn" id="btnReset">重來</button>
+  <button class="btn primary" id="btnNext">下一關 →</button>
+</div>
+
+<div class="settings" id="settings" hidden>
+  <label><span>跳到關卡</span>
+    <span class="row"><input type="number" id="gotoLevel" min="1" max="9999" value="1"><button class="btn" id="btnGoto" style="flex:none;padding:6px 12px">前往</button></span>
+  </label>
+  <label><span>自動標叉（放貓後自動在同行、同列、同色與相鄰格標叉）</span><input type="checkbox" id="autoMark" checked></label>
+  <div class="small" id="progressInfo"></div>
+  <label><span class="small">清除所有進度</span><button class="btn" id="btnClear" style="flex:none;padding:6px 12px;font-size:13px">清除</button></label>
+</div>
+
+<div class="overlay" id="overlay" hidden>產生關卡中…</div>
+
+<script>
+/* ---------------- 關卡產生器 ---------------- */
+
+// 固定種子的亂數：同一關永遠產生同一題
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffled(arr, rng) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// 1. 先隨機擺出一組合法的貓位置（每行每列一隻、互不相鄰）
+function randomPlacement(n, rng) {
+  const cols = new Array(n).fill(-1);
+  const used = new Set();
+  function go(r) {
+    if (r === n) return true;
+    for (const c of shuffled([...Array(n).keys()], rng)) {
+      if (used.has(c)) continue;
+      if (r > 0 && Math.abs(cols[r - 1] - c) <= 1) continue;
+      cols[r] = c; used.add(c);
+      if (go(r + 1)) return true;
+      used.delete(c);
+    }
+    return false;
+  }
+  go(0);
+  return cols; // cols[r] = 該列貓所在的欄
+}
+
+// 2. 以每隻貓為種子，用加權隨機洪水填充長出 n 個顏色區域
+function growRegions(n, cats, rng) {
+  const region = Array.from({ length: n }, () => new Array(n).fill(-1));
+  const cells = [];   // cells[k] = 區域 k 目前擁有的格子
+  const weight = [];  // 擴張權重：權重差異大 → 有大區也有小區
+  for (let k = 0; k < n; k++) {
+    region[k][cats[k]] = k;
+    cells.push([[k, cats[k]]]);
+    weight.push(0.2 + Math.pow(rng(), 2) * 3);
+  }
+  let empty = n * n - n;
+  const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  while (empty > 0) {
+    const total = weight.reduce((s, w) => s + w, 0);
+    if (total <= 0) break;
+    let pick = rng() * total, k = 0;
+    while (k < n - 1 && pick >= weight[k]) { pick -= weight[k]; k++; }
+    // 找出區域 k 所有可擴張的空鄰格
+    const frontier = [];
+    for (const [r, c] of cells[k]) for (const [dr, dc] of dirs) {
+      const rr = r + dr, cc = c + dc;
+      if (rr >= 0 && rr < n && cc >= 0 && cc < n && region[rr][cc] === -1) frontier.push([rr, cc]);
+    }
+    if (frontier.length === 0) { weight[k] = 0; continue; }
+    const [r, c] = frontier[Math.floor(rng() * frontier.length)];
+    region[r][c] = k; cells[k].push([r, c]); empty--;
+  }
+  return region;
+}
+
+// 3. 解題器：回溯法，最多找 limit 組解，回傳每組解的欄位陣列（用來確認唯一解）
+function solve(region, limit) {
+  const n = region.length;
+  const usedCol = new Array(n).fill(false), usedReg = new Array(n).fill(false);
+  const cols = [], found = [];
+  function go(r) {
+    if (r === n) { found.push(cols.slice()); return found.length >= limit; }
+    for (let c = 0; c < n; c++) {
+      const k = region[r][c];
+      if (usedCol[c] || usedReg[k]) continue;
+      if (r > 0 && Math.abs(cols[r - 1] - c) <= 1) continue;
+      usedCol[c] = usedReg[k] = true; cols.push(c);
+      if (go(r + 1)) return true;
+      cols.pop(); usedCol[c] = usedReg[k] = false;
+    }
+    return false;
+  }
+  go(0);
+  return found;
+}
+function countSolutions(region, limit) { return solve(region, limit).length; }
+
+// 拿掉 (r, c) 之後，區域 k 是否仍然連通
+function stillConnected(region, k, r, c) {
+  const n = region.length;
+  let start = null, total = 0;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++)
+    if (region[i][j] === k && !(i === r && j === c)) { total++; if (!start) start = [i, j]; }
+  if (!start) return false;
+  const seen = new Set([start[0] * n + start[1]]), stack = [start];
+  while (stack.length) {
+    const [i, j] = stack.pop();
+    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const ii = i + di, jj = j + dj;
+      if (ii < 0 || ii >= n || jj < 0 || jj >= n) continue;
+      if (ii === r && jj === c) continue;
+      const key = ii * n + jj;
+      if (region[ii][jj] === k && !seen.has(key)) { seen.add(key); stack.push([ii, jj]); }
+    }
+  }
+  return seen.size === total;
+}
+
+// 4. 修補：只要有第二組解，就把那組解多出來的貓所在格改成鄰近顏色。
+//    該格不是正解的貓格，所以正解仍成立；而第二組解在新顏色裡會有兩隻貓，因此失效。
+function repairToUnique(region, cats, rng, maxSteps) {
+  const n = region.length;
+  for (let step = 0; step < maxSteps; step++) {
+    const sols = solve(region, 2);
+    if (sols.length === 1) return true;
+    const alt = sols[0].every((c, r) => c === cats[r]) ? sols[1] : sols[0];
+    const rows = shuffled([...Array(n).keys()].filter(r => alt[r] !== cats[r]), rng);
+    let changed = false;
+    for (const r of rows) {
+      const c = alt[r], k = region[r][c];
+      const options = [];
+      for (const [dr, dc] of shuffled([[1, 0], [-1, 0], [0, 1], [0, -1]], rng)) {
+        const rr = r + dr, cc = c + dc;
+        if (rr < 0 || rr >= n || cc < 0 || cc >= n) continue;
+        const k2 = region[rr][cc];
+        if (k2 !== k && !options.includes(k2)) options.push(k2);
+      }
+      if (options.length && stillConnected(region, k, r, c)) {
+        region[r][c] = options[0]; changed = true; break;
+      }
+    }
+    if (!changed) return false;
+  }
+  return solve(region, 2).length === 1;
+}
+
+// 關卡 → 盤面大小：越後面越大
+function sizeForLevel(level) {
+  if (level <= 5) return 6;
+  if (level <= 12) return 7;
+  if (level <= 22) return 8;
+  if (level <= 35) return 9;
+  return 10;
+}
+
+// 產生第 level 關：隨機擺貓 → 長區域 → 修補到唯一解
+function generateLevel(level) {
+  const n = sizeForLevel(level);
+  const rng = mulberry32(level * 7919 + n * 104729 + 12345);
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const cats = randomPlacement(n, rng);
+    const region = growRegions(n, cats, rng);
+    if (repairToUnique(region, cats, rng, 60)) return { n, region, solution: cats, attempts: attempt + 1 };
+  }
+  throw new Error("找不到唯一解的題目");
+}
+
+/* ---------------- 遊戲狀態與畫面 ---------------- */
+
+const PALETTE = ["#a3e07f", "#a8714e", "#c8788f", "#3fa3b0", "#f2a0e8",
+                 "#f9dc7f", "#a9c8ea", "#2f9a5a", "#8b78d8", "#d1aa00"];
+const EMPTY = 0, MARK_X = 1, CAT = 2;
+
+const $ = id => document.getElementById(id);
+const boardEl = $("board"), statusEl = $("status"), timerEl = $("timer");
+
+let store = loadStore();
+let level = store.level || 1;
+let puzzle = null, marks = null, won = false;
+let startTime = null, elapsed = 0, timerId = null;
+
+function loadStore() {
+  try { return JSON.parse(localStorage.getItem("findcat") || "{}"); } catch { return {}; }
+}
+function saveStore() {
+  try { localStorage.setItem("findcat", JSON.stringify(store)); } catch {}
+}
+
+function fmt(ms) {
+  const s = Math.floor(ms / 1000);
+  return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+}
+function startTimer() {
+  if (timerId || won) return;
+  startTime = Date.now() - elapsed;
+  timerId = setInterval(() => { elapsed = Date.now() - startTime; timerEl.textContent = fmt(elapsed); }, 250);
+}
+function stopTimer() { clearInterval(timerId); timerId = null; }
+
+function loadLevel(lv) {
+  level = Math.max(1, lv);
+  store.level = level; saveStore();
+  $("overlay").hidden = false;
+  // 讓「產生關卡中…」先畫出來再開始算
+  setTimeout(() => {
+    puzzle = generateLevel(level);
+    marks = Array.from({ length: puzzle.n }, () => new Array(puzzle.n).fill(EMPTY));
+    won = false; stopTimer(); elapsed = 0; timerEl.textContent = "0:00";
+    $("levelNum").textContent = level;
+    $("gotoLevel").value = level;
+    buildBoard();
+    render();
+    $("overlay").hidden = true;
+  }, 20);
+}
+
+function buildBoard() {
+  const n = puzzle.n;
+  boardEl.style.gridTemplateColumns = `repeat(${n}, 1fr)`;
+  boardEl.innerHTML = "";
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+    const d = document.createElement("div");
+    d.className = "cell";
+    d.style.background = PALETTE[puzzle.region[r][c]];
+    d.dataset.r = r; d.dataset.c = c;
+    d.innerHTML = '<span class="mark"></span>';
+    boardEl.appendChild(d);
+  }
+}
+
+// 點一下：空 → 叉 → 貓 → 空
+boardEl.addEventListener("click", e => {
+  const cell = e.target.closest(".cell");
+  if (!cell || won) return;
+  const r = +cell.dataset.r, c = +cell.dataset.c;
+  marks[r][c] = (marks[r][c] + 1) % 3;
+  startTimer();
+  render();
+});
+
+// 找出違規的貓：同行、同列、同色重複，或相鄰
+function findViolations() {
+  const n = puzzle.n, bad = new Set(), cats = [];
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (marks[r][c] === CAT) cats.push([r, c]);
+  for (let i = 0; i < cats.length; i++) for (let j = i + 1; j < cats.length; j++) {
+    const [r1, c1] = cats[i], [r2, c2] = cats[j];
+    const same = r1 === r2 || c1 === c2 || puzzle.region[r1][c1] === puzzle.region[r2][c2];
+    const adj = Math.abs(r1 - r2) <= 1 && Math.abs(c1 - c2) <= 1;
+    if (same || adj) { bad.add(r1 * n + c1); bad.add(r2 * n + c2); }
+  }
+  return { cats, bad };
+}
+
+// 自動標叉：被任何一隻貓「攻擊」到的空格
+function autoMarked() {
+  const n = puzzle.n, set = new Set();
+  if (!$("autoMark").checked) return set;
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (marks[r][c] === CAT) {
+    for (let rr = 0; rr < n; rr++) for (let cc = 0; cc < n; cc++) {
+      if (marks[rr][cc] !== EMPTY) continue;
+      if (rr === r || cc === c || puzzle.region[rr][cc] === puzzle.region[r][c] ||
+          (Math.abs(rr - r) <= 1 && Math.abs(cc - c) <= 1)) set.add(rr * n + cc);
+    }
+  }
+  return set;
+}
+
+function render() {
+  const n = puzzle.n;
+  const { cats, bad } = findViolations();
+  const auto = autoMarked();
+  for (const cell of boardEl.children) {
+    const r = +cell.dataset.r, c = +cell.dataset.c, m = marks[r][c], key = r * n + c;
+    const span = cell.firstChild;
+    span.className = "mark";
+    if (m === CAT) span.textContent = "🐱";
+    else if (m === MARK_X) span.textContent = "✕";
+    else if (auto.has(key)) { span.textContent = "✕"; span.className = "auto"; }
+    else span.textContent = "";
+    cell.classList.toggle("bad", bad.has(key));
+  }
+  if (cats.length === n && bad.size === 0) {
+    won = true; stopTimer();
+    boardEl.classList.add("won");
+    statusEl.className = "status win";
+    statusEl.textContent = `🎉 過關！用時 ${fmt(elapsed)}`;
+    store.done = store.done || {};
+    const best = store.done[level];
+    store.done[level] = best ? Math.min(best, elapsed) : elapsed;
+    saveStore();
+  } else {
+    boardEl.classList.remove("won");
+    statusEl.className = "status";
+    statusEl.textContent = bad.size ? "有貓咪違反規則" : `已放 ${cats.length} / ${n} 隻貓`;
+  }
+  updateProgressInfo();
+}
+
+function updateProgressInfo() {
+  const done = Object.keys(store.done || {}).length;
+  const best = (store.done || {})[level];
+  $("progressInfo").textContent =
+    `已完成 ${done} 關。` + (best ? `本關最佳 ${fmt(best)}。` : "") +
+    ` 本關 ${puzzle.n}×${puzzle.n}，產生器嘗試 ${puzzle.attempts} 次找到唯一解。`;
+}
+
+$("btnPrev").onclick = () => { if (level > 1) loadLevel(level - 1); };
+$("btnNext").onclick = () => loadLevel(level + 1);
+$("btnReset").onclick = () => { marks.forEach(row => row.fill(EMPTY)); won = false; stopTimer(); elapsed = 0; timerEl.textContent = "0:00"; render(); };
+$("btnSettings").onclick = () => { $("settings").hidden = !$("settings").hidden; };
+$("btnGoto").onclick = () => loadLevel(+$("gotoLevel").value || 1);
+$("autoMark").onchange = () => { store.autoMark = $("autoMark").checked; saveStore(); render(); };
+$("btnClear").onclick = () => { if (confirm("確定清除所有進度？")) { store = {}; saveStore(); loadLevel(1); } };
+
+if (store.autoMark === false) $("autoMark").checked = false;
+loadLevel(level);
+</script>
+</body>
+</html>
