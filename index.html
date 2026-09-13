@@ -23,6 +23,7 @@
   header .stat { text-align: center; }
   header .stat .label { font-size: 15px; font-weight: 600; }
   header .stat .value { font-size: 30px; font-weight: 700; line-height: 1.05; }
+  header .stat .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .iconbtn { width: 48px; height: 48px; border-radius: 50%; border: 0; background: var(--card);
     color: var(--text); font-size: 22px; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.06); }
 
@@ -87,7 +88,7 @@
 
 <header>
   <button class="iconbtn" id="btnPrev" title="上一關">←</button>
-  <div class="stat"><div class="label">關卡</div><div class="value" id="levelNum">1</div></div>
+  <div class="stat"><div class="label">關卡</div><div class="value" id="levelNum">1</div><div class="sub" id="levelInfo"></div></div>
   <div class="stat"><div class="label">時間</div><div class="value" id="timer">0:00</div></div>
   <button class="iconbtn" id="btnSettings" title="設定">⚙</button>
 </header>
@@ -264,26 +265,156 @@ function repairToUnique(region, cats, rng, maxSteps) {
   return solve(region, 2).length === 1;
 }
 
-// 關卡 → 盤面大小：越後面越大
-function sizeForLevel(level) {
-  if (level <= 5) return 6;
-  if (level <= 12) return 7;
-  if (level <= 22) return 8;
-  if (level <= 35) return 9;
-  return 10;
+/* ---------------- 難度評分：模擬人類推理 ----------------
+   技巧分級：
+   1 簡單：T1 某行/列/區只剩一個候選格 → 放貓；T2 某區候選格全在同一行(列) → 鎖住該行(列)
+   2 中等：T3 放此格會讓某行/列/區沒位置 → 排除；T4 k 個區域剛好佔 k 行(列) → 其他區域讓開
+   3 困難：T5 假設放此格，用簡單技巧推下去會矛盾 → 排除
+   4 無法純邏輯推完（需要猜測），產生器不採用 */
+function rateDifficulty(region) {
+  const n = region.length;
+  const cand = Array.from({ length: n }, () => new Array(n).fill(true));
+  const rowCat = new Array(n).fill(false), colCat = new Array(n).fill(false), regCat = new Array(n).fill(false);
+  let placed = 0, tier = 1;
+  const catAt = new Array(n).fill(-1);
+
+  const cellsOf = { row: r => [...Array(n).keys()].map(c => [r, c]),
+                    col: c => [...Array(n).keys()].map(r => [r, c]) };
+  const regCells = Array.from({ length: n }, () => []);
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) regCells[region[r][c]].push([r, c]);
+
+  function place(r, c) {
+    for (let rr = 0; rr < n; rr++) for (let cc = 0; cc < n; cc++)
+      if (rr === r || cc === c || region[rr][cc] === region[r][c] || (Math.abs(rr - r) <= 1 && Math.abs(cc - c) <= 1)) cand[rr][cc] = false;
+    rowCat[r] = colCat[c] = regCat[region[r][c]] = true; placed++; catAt[r] = c;
+  }
+  const candsIn = cells => cells.filter(([r, c]) => cand[r][c]);
+  const units = () => {
+    const u = [];
+    for (let i = 0; i < n; i++) {
+      if (!rowCat[i]) u.push(candsIn(cellsOf.row(i)));
+      if (!colCat[i]) u.push(candsIn(cellsOf.col(i)));
+      if (!regCat[i]) u.push(candsIn(regCells[i]));
+    }
+    return u;
+  };
+  const contradiction = () => units().some(cs => cs.length === 0);
+
+  // T1
+  function t1() {
+    for (const cs of units()) if (cs.length === 1) { place(...cs[0]); return true; }
+    return false;
+  }
+  // T2：區域候選格全在同一行/列，或某行/列候選格全在同一區域
+  function t2() {
+    let changed = false;
+    for (let k = 0; k < n; k++) {
+      if (regCat[k]) continue;
+      const cs = candsIn(regCells[k]);
+      const rows = new Set(cs.map(x => x[0])), cols = new Set(cs.map(x => x[1]));
+      if (rows.size === 1) { const [r] = rows; for (let c = 0; c < n; c++) if (cand[r][c] && region[r][c] !== k) { cand[r][c] = false; changed = true; } }
+      if (cols.size === 1) { const [c] = cols; for (let r = 0; r < n; r++) if (cand[r][c] && region[r][c] !== k) { cand[r][c] = false; changed = true; } }
+    }
+    for (let i = 0; i < n; i++) {
+      for (const [line, isRow] of [[cellsOf.row(i), true], [cellsOf.col(i), false]]) {
+        if (isRow ? rowCat[i] : colCat[i]) continue;
+        const cs = candsIn(line);
+        const regs = new Set(cs.map(([r, c]) => region[r][c]));
+        if (regs.size === 1) { const [k] = regs;
+          for (const [r, c] of regCells[k]) if (cand[r][c] && (isRow ? r !== i : c !== i)) { cand[r][c] = false; changed = true; } }
+      }
+    }
+    return changed;
+  }
+  // T3：放這格會讓某個單位沒有位置
+  function t3() {
+    let changed = false;
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+      if (!cand[r][c]) continue;
+      const kills = (rr, cc) => rr === r || cc === c || region[rr][cc] === region[r][c] || (Math.abs(rr - r) <= 1 && Math.abs(cc - c) <= 1);
+      for (const cs of units()) {
+        if (cs.some(([rr, cc]) => rr === r && cc === c)) continue; // 這格自己所屬的單位由它滿足
+        if (cs.every(([rr, cc]) => kills(rr, cc))) { cand[r][c] = false; changed = true; break; }
+      }
+    }
+    return changed;
+  }
+  // T4：k 個區域的候選格剛好只佔 k 行(列) → 這些行(列)被它們包辦
+  function t4() {
+    let changed = false;
+    const free = [...Array(n).keys()].filter(k => !regCat[k]);
+    const lineSets = free.map(k => { const cs = candsIn(regCells[k]);
+      return { k, rows: new Set(cs.map(x => x[0])), cols: new Set(cs.map(x => x[1])) }; });
+    for (const size of [2, 3]) {
+      const combos = [];
+      const go = (start, acc) => { if (acc.length === size) { combos.push(acc.slice()); return; }
+        for (let i = start; i < lineSets.length; i++) { acc.push(lineSets[i]); go(i + 1, acc); acc.pop(); } };
+      go(0, []);
+      for (const combo of combos) for (const dim of ["rows", "cols"]) {
+        const union = new Set(); combo.forEach(x => x[dim].forEach(v => union.add(v)));
+        if (union.size !== size) continue;
+        const ks = new Set(combo.map(x => x.k));
+        for (const line of union) for (let j = 0; j < n; j++) {
+          const [r, c] = dim === "rows" ? [line, j] : [j, line];
+          if (cand[r][c] && !ks.has(region[r][c])) { cand[r][c] = false; changed = true; }
+        }
+      }
+    }
+    return changed;
+  }
+  // T5：假設放此格，用 T1+T2 推到底若矛盾 → 排除
+  function t5() {
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+      if (!cand[r][c]) continue;
+      const snap = { cand: cand.map(x => x.slice()), rowCat: rowCat.slice(), colCat: colCat.slice(), regCat: regCat.slice(), placed, catAt: catAt.slice() };
+      place(r, c);
+      let bad = contradiction();
+      while (!bad && placed < n) {
+        if (t1() || t2()) { bad = contradiction(); continue; }
+        break;
+      }
+      for (let i = 0; i < n; i++) { cand[i] = snap.cand[i]; rowCat[i] = snap.rowCat[i]; colCat[i] = snap.colCat[i]; regCat[i] = snap.regCat[i]; }
+      placed = snap.placed; for (let i = 0; i < n; i++) catAt[i] = snap.catAt[i];
+      if (bad) { cand[r][c] = false; return true; }
+    }
+    return false;
+  }
+
+  while (placed < n) {
+    if (contradiction()) return { tier: 4, solved: false };
+    if (t1() || t2()) continue;
+    if (t3() || t4()) { tier = Math.max(tier, 2); continue; }
+    if (t5()) { tier = Math.max(tier, 3); continue; }
+    return { tier: 4, solved: false };
+  }
+  return { tier, solved: true, cats: catAt };
 }
 
-// 產生第 level 關：隨機擺貓 → 長區域 → 修補到唯一解
+// 關卡 → 盤面大小
+function sizeForLevel(level) {
+  if (level <= 5) return 6;
+  if (level <= 10) return 7;
+  if (level <= 20) return 8;
+  if (level <= 30) return 9;
+  return 10;
+}
+// 關卡 → 難度：1 到 10 關簡單、11 到 30 關中等、之後困難
+function tierForLevel(level) { return level <= 10 ? 1 : level <= 30 ? 2 : 3; }
+const TIER_NAME = { 1: "簡單", 2: "中等", 3: "困難" };
+
+// 產生第 level 關：隨機擺貓 → 長區域 → 修補到唯一解 → 難度符合要求才採用
 function generateLevel(level) {
-  const n = sizeForLevel(level);
+  const n = sizeForLevel(level), want = tierForLevel(level);
   const rng = mulberry32(level * 7919 + n * 104729 + 12345);
-  for (let attempt = 0; attempt < 200; attempt++) {
+  for (let attempt = 0; attempt < 3000; attempt++) {
     const cats = randomPlacement(n, rng);
     const region = growRegions(n, cats, rng);
-    if (repairToUnique(region, cats, rng, 60))
-      return { n, region, solution: cats, colors: assignColors(region), attempts: attempt + 1 };
+    if (!repairToUnique(region, cats, rng, 60)) continue;
+    const rating = rateDifficulty(region);
+    if (rating.tier !== want) continue;
+    return { n, region, solution: cats, colors: assignColors(region), tier: want, attempts: attempt + 1 };
   }
-  throw new Error("找不到唯一解的題目");
+  throw new Error("找不到符合難度的題目");
 }
 
 /* ---------------- 遊戲狀態與畫面 ---------------- */
@@ -382,6 +513,7 @@ function loadLevel(lv) {
     marks = Array.from({ length: puzzle.n }, () => new Array(puzzle.n).fill(EMPTY));
     won = lost = false; mistakes = 0; stopTimer(); elapsed = 0; timerEl.textContent = "0:00";
     $("levelNum").textContent = level;
+    $("levelInfo").textContent = `${TIER_NAME[puzzle.tier]} · ${puzzle.n}×${puzzle.n}`;
     $("gotoLevel").value = level;
     buildBoard();
     render();
@@ -503,7 +635,7 @@ function updateProgressInfo() {
   const best = (store.done || {})[level];
   $("progressInfo").textContent =
     `已完成 ${done} 關。` + (best ? `本關最佳 ${fmt(best)}。` : "") +
-    ` 本關 ${puzzle.n}×${puzzle.n}，產生器嘗試 ${puzzle.attempts} 次找到唯一解。`;
+    ` 本關 ${TIER_NAME[puzzle.tier]} ${puzzle.n}×${puzzle.n}，產生器嘗試 ${puzzle.attempts} 次找到符合難度的唯一解。`;
 }
 
 $("btnPrev").onclick = () => { if (level > 1) loadLevel(level - 1); };
