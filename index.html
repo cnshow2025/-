@@ -572,7 +572,30 @@ function tone(ctx, { type = "sine", freq = 440, to = null, dur = 0.1, vol = 0.2,
   node.connect(g); g.connect(ctx.destination);
   osc.start(ctx.currentTime + at); osc.stop(ctx.currentTime + at + dur + 0.05);
 }
+// 語音：用瀏覽器內建的語音合成唸英文稱讚，不需要音檔
+const PRAISE = ["Nice!", "Great!", "Good job!", "Excellent!", "Awesome!", "Well done!"];
+let voicesReady = [];
+if ("speechSynthesis" in window) {
+  const load = () => { voicesReady = speechSynthesis.getVoices(); };
+  load(); speechSynthesis.addEventListener("voiceschanged", load);
+}
+function speak(text) {
+  if (!$("sound").checked || !("speechSynthesis" in window)) return false;
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "en-US"; u.rate = 1.05; u.pitch = 1.15; u.volume = 1;
+    const en = voicesReady.filter(v => v.lang && v.lang.toLowerCase().startsWith("en"));
+    const v = en.find(v => /Samantha|Karen|Moira|Google US English|Microsoft Zira|Microsoft Aria/i.test(v.name)) || en[0];
+    if (v) u.voice = v;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+    return true;
+  } catch { return false; }
+}
+
 const sfx = {
+  // 找到貓：唸一句稱讚；裝置不支援語音時改為喵
+  found() { if (!speak(PRAISE[Math.floor(Math.random() * PRAISE.length)])) sfx.meow(); },
   click() { const c = audio(); if (c) tone(c, { type: "triangle", freq: 900, to: 500, dur: 0.06, vol: 0.15 }); },
   meow() {
     const c = audio(); if (!c) return;
@@ -701,7 +724,7 @@ boardEl.addEventListener("click", e => {
   if (marks[r][c] === CAT || marks[r][c] === WRONG) return;
   if (lastTap.key === key && now - lastTap.time < 350) {
     lastTap = { key: -1, time: 0 };
-    if (puzzle.solution[r] === c) { marks[r][c] = CAT; sfx.meow(); }      // 放對：鎖定，喵一聲
+    if (puzzle.solution[r] === c) { marks[r][c] = CAT; sfx.found(); }     // 放對：鎖定，唸一句稱讚
     else { marks[r][c] = WRONG; mistakes++; sfx.wrong(); }              // 放錯：紅色錯誤並鎖定
   } else {
     marks[r][c] = marks[r][c] === EMPTY ? MARK_X : EMPTY;
