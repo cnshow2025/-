@@ -72,6 +72,10 @@
     94% { transform: scaleY(0.12); }
   }
   .cell.locked { cursor: default; }
+  .cell.hintFocus { box-shadow: inset 0 0 0 3px rgba(255,255,255,.85); }
+  .cell.hintCell { animation: hintPulse 1s ease-in-out 4; }
+  @keyframes hintPulse { 0%, 100% { box-shadow: inset 0 0 0 3px #ffd54a; } 50% { box-shadow: inset 0 0 0 6px #ffd54a; transform: scale(1.06); } }
+  .status.hint { color: #a3660a; font-weight: 600; }
   .cell.wrong { box-shadow: inset 0 0 0 3px var(--accent); }
   .cell.wrong .mark { animation: shake .3s; }
   /* 放錯：白叉加紅邊，任何底色上都看得見 */
@@ -148,6 +152,7 @@
 
 <div class="controls">
   <button class="btn" id="btnReset">重來</button>
+  <button class="btn" id="btnHint">💡 提示 <span id="hintLeft">3</span></button>
   <button class="btn" id="btnBoard">👤 參賽者</button>
   <button class="btn primary" id="btnNext">下一關 →</button>
 </div>
@@ -332,129 +337,155 @@ function repairToUnique(region, cats, rng, maxSteps) {
   return solve(region, 2).length === 1;
 }
 
-/* ---------------- 難度評分：模擬人類推理 ----------------
+/* ---------------- 邏輯解題器：模擬人類推理，可逐步執行 ----------------
    技巧分級：
    1 簡單：T1 某行/列/區只剩一個候選格 → 放貓；T2 某區候選格全在同一行(列) → 鎖住該行(列)
    2 中等：T3 放此格會讓某行/列/區沒位置 → 排除；T4 k 個區域剛好佔 k 行(列) → 其他區域讓開
    3 困難：T5 假設放此格，用簡單技巧推下去會矛盾 → 排除
-   4 無法純邏輯推完（需要猜測），產生器不採用 */
-function rateDifficulty(region) {
+   4 無法純邏輯推完（需要猜測），產生器不採用
+   每個技巧回傳一個步驟 { tier, text, focus:[[r,c]…], removed:[[r,c]…], placed:[r,c]|null }，沒有進展回傳 null */
+function makeSolver(region) {
   const n = region.length;
   const cand = Array.from({ length: n }, () => new Array(n).fill(true));
   const rowCat = new Array(n).fill(false), colCat = new Array(n).fill(false), regCat = new Array(n).fill(false);
-  let placed = 0, tier = 1;
   const catAt = new Array(n).fill(-1);
-
-  const cellsOf = { row: r => [...Array(n).keys()].map(c => [r, c]),
-                    col: c => [...Array(n).keys()].map(r => [r, c]) };
+  let placed = 0;
   const regCells = Array.from({ length: n }, () => []);
   for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) regCells[region[r][c]].push([r, c]);
+  const rowCells = r => [...Array(n).keys()].map(c => [r, c]);
+  const colCells = c => [...Array(n).keys()].map(r => [r, c]);
+  const candsIn = cells => cells.filter(([r, c]) => cand[r][c]);
 
   function place(r, c) {
     for (let rr = 0; rr < n; rr++) for (let cc = 0; cc < n; cc++)
       if (rr === r || cc === c || region[rr][cc] === region[r][c] || (Math.abs(rr - r) <= 1 && Math.abs(cc - c) <= 1)) cand[rr][cc] = false;
     rowCat[r] = colCat[c] = regCat[region[r][c]] = true; placed++; catAt[r] = c;
   }
-  const candsIn = cells => cells.filter(([r, c]) => cand[r][c]);
-  const units = () => {
+  // 所有還沒有貓的單位：{ kind, idx, cells }
+  function units() {
     const u = [];
     for (let i = 0; i < n; i++) {
-      if (!rowCat[i]) u.push(candsIn(cellsOf.row(i)));
-      if (!colCat[i]) u.push(candsIn(cellsOf.col(i)));
-      if (!regCat[i]) u.push(candsIn(regCells[i]));
+      if (!rowCat[i]) u.push({ kind: "row", idx: i, cells: rowCells(i) });
+      if (!colCat[i]) u.push({ kind: "col", idx: i, cells: colCells(i) });
+      if (!regCat[i]) u.push({ kind: "reg", idx: i, cells: regCells[i] });
     }
     return u;
-  };
-  const contradiction = () => units().some(cs => cs.length === 0);
-
-  // T1
-  function t1() {
-    for (const cs of units()) if (cs.length === 1) { place(...cs[0]); return true; }
-    return false;
   }
-  // T2：區域候選格全在同一行/列，或某行/列候選格全在同一區域
+  const unitName = u => u.kind === "row" ? `第 ${u.idx + 1} 行` : u.kind === "col" ? `第 ${u.idx + 1} 列` : "這個顏色";
+  const contradiction = () => units().some(u => candsIn(u.cells).length === 0);
+  function remove(cells) { const out = []; for (const [r, c] of cells) if (cand[r][c]) { cand[r][c] = false; out.push([r, c]); } return out; }
+
+  function t1() {
+    for (const u of units()) {
+      const cs = candsIn(u.cells);
+      if (cs.length === 1) {
+        const [r, c] = cs[0]; place(r, c);
+        return { tier: 1, text: `${unitName(u)}只剩一格可以放貓`, focus: u.cells, removed: [], placed: [r, c] };
+      }
+    }
+    return null;
+  }
   function t2() {
-    let changed = false;
     for (let k = 0; k < n; k++) {
       if (regCat[k]) continue;
       const cs = candsIn(regCells[k]);
       const rows = new Set(cs.map(x => x[0])), cols = new Set(cs.map(x => x[1]));
-      if (rows.size === 1) { const [r] = rows; for (let c = 0; c < n; c++) if (cand[r][c] && region[r][c] !== k) { cand[r][c] = false; changed = true; } }
-      if (cols.size === 1) { const [c] = cols; for (let r = 0; r < n; r++) if (cand[r][c] && region[r][c] !== k) { cand[r][c] = false; changed = true; } }
+      if (rows.size === 1) { const [r] = rows; const rm = remove(rowCells(r).filter(([, c]) => region[r][c] !== k));
+        if (rm.length) return { tier: 1, text: `這個顏色的貓一定在第 ${r + 1} 行，所以這一行其他顏色的格子可以標叉`, focus: regCells[k], removed: rm, placed: null }; }
+      if (cols.size === 1) { const [c] = cols; const rm = remove(colCells(c).filter(([r]) => region[r][c] !== k));
+        if (rm.length) return { tier: 1, text: `這個顏色的貓一定在第 ${c + 1} 列，所以這一列其他顏色的格子可以標叉`, focus: regCells[k], removed: rm, placed: null }; }
     }
-    for (let i = 0; i < n; i++) {
-      for (const [line, isRow] of [[cellsOf.row(i), true], [cellsOf.col(i), false]]) {
-        if (isRow ? rowCat[i] : colCat[i]) continue;
-        const cs = candsIn(line);
-        const regs = new Set(cs.map(([r, c]) => region[r][c]));
-        if (regs.size === 1) { const [k] = regs;
-          for (const [r, c] of regCells[k]) if (cand[r][c] && (isRow ? r !== i : c !== i)) { cand[r][c] = false; changed = true; } }
-      }
+    for (const u of units()) {
+      if (u.kind === "reg") continue;
+      const cs = candsIn(u.cells);
+      const regs = new Set(cs.map(([r, c]) => region[r][c]));
+      if (regs.size === 1) { const [k] = regs;
+        const rm = remove(regCells[k].filter(([r, c]) => u.kind === "row" ? r !== u.idx : c !== u.idx));
+        if (rm.length) return { tier: 1, text: `${unitName(u)}的貓一定在同一個顏色裡，所以那個顏色在其他${u.kind === "row" ? "行" : "列"}的格子可以標叉`, focus: u.cells, removed: rm, placed: null }; }
     }
-    return changed;
+    return null;
   }
-  // T3：放這格會讓某個單位沒有位置
   function t3() {
-    let changed = false;
     for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
       if (!cand[r][c]) continue;
       const kills = (rr, cc) => rr === r || cc === c || region[rr][cc] === region[r][c] || (Math.abs(rr - r) <= 1 && Math.abs(cc - c) <= 1);
-      for (const cs of units()) {
-        if (cs.some(([rr, cc]) => rr === r && cc === c)) continue; // 這格自己所屬的單位由它滿足
-        if (cs.every(([rr, cc]) => kills(rr, cc))) { cand[r][c] = false; changed = true; break; }
+      for (const u of units()) {
+        const cs = candsIn(u.cells);
+        if (cs.some(([rr, cc]) => rr === r && cc === c)) continue;
+        if (cs.every(([rr, cc]) => kills(rr, cc))) {
+          cand[r][c] = false;
+          return { tier: 2, text: `如果在這格放貓，${unitName(u)}就沒有地方放了，所以這格可以標叉`, focus: u.cells, removed: [[r, c]], placed: null };
+        }
       }
     }
-    return changed;
+    return null;
   }
-  // T4：k 個區域的候選格剛好只佔 k 行(列) → 這些行(列)被它們包辦
   function t4() {
-    let changed = false;
     const free = [...Array(n).keys()].filter(k => !regCat[k]);
-    const lineSets = free.map(k => { const cs = candsIn(regCells[k]);
-      return { k, rows: new Set(cs.map(x => x[0])), cols: new Set(cs.map(x => x[1])) }; });
+    const info = free.map(k => { const cs = candsIn(regCells[k]); return { k, rows: new Set(cs.map(x => x[0])), cols: new Set(cs.map(x => x[1])) }; });
     for (const size of [2, 3]) {
       const combos = [];
       const go = (start, acc) => { if (acc.length === size) { combos.push(acc.slice()); return; }
-        for (let i = start; i < lineSets.length; i++) { acc.push(lineSets[i]); go(i + 1, acc); acc.pop(); } };
+        for (let i = start; i < info.length; i++) { acc.push(info[i]); go(i + 1, acc); acc.pop(); } };
       go(0, []);
       for (const combo of combos) for (const dim of ["rows", "cols"]) {
         const union = new Set(); combo.forEach(x => x[dim].forEach(v => union.add(v)));
         if (union.size !== size) continue;
         const ks = new Set(combo.map(x => x.k));
+        const targets = [];
         for (const line of union) for (let j = 0; j < n; j++) {
           const [r, c] = dim === "rows" ? [line, j] : [j, line];
-          if (cand[r][c] && !ks.has(region[r][c])) { cand[r][c] = false; changed = true; }
+          if (!ks.has(region[r][c])) targets.push([r, c]);
         }
+        const rm = remove(targets);
+        if (rm.length) return { tier: 2, text: `這 ${size} 個顏色剛好只佔了 ${size} ${dim === "rows" ? "行" : "列"}，其他顏色在這幾${dim === "rows" ? "行" : "列"}的格子可以標叉`,
+                                focus: combo.flatMap(x => regCells[x.k]), removed: rm, placed: null };
       }
     }
-    return changed;
+    return null;
   }
-  // T5：假設放此格，用 T1+T2 推到底若矛盾 → 排除
+  function snapshot() { return { cand: cand.map(x => x.slice()), rowCat: rowCat.slice(), colCat: colCat.slice(), regCat: regCat.slice(), catAt: catAt.slice(), placed }; }
+  function restore(s) { for (let i = 0; i < n; i++) { cand[i] = s.cand[i]; rowCat[i] = s.rowCat[i]; colCat[i] = s.colCat[i]; regCat[i] = s.regCat[i]; catAt[i] = s.catAt[i]; } placed = s.placed; }
   function t5() {
     for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
       if (!cand[r][c]) continue;
-      const snap = { cand: cand.map(x => x.slice()), rowCat: rowCat.slice(), colCat: colCat.slice(), regCat: regCat.slice(), placed, catAt: catAt.slice() };
+      const snap = snapshot();
       place(r, c);
       let bad = contradiction();
-      while (!bad && placed < n) {
-        if (t1() || t2()) { bad = contradiction(); continue; }
-        break;
-      }
-      for (let i = 0; i < n; i++) { cand[i] = snap.cand[i]; rowCat[i] = snap.rowCat[i]; colCat[i] = snap.colCat[i]; regCat[i] = snap.regCat[i]; }
-      placed = snap.placed; for (let i = 0; i < n; i++) catAt[i] = snap.catAt[i];
-      if (bad) { cand[r][c] = false; return true; }
+      while (!bad && placed < n) { if (t1() || t2()) { bad = contradiction(); continue; } break; }
+      restore(snap);
+      if (bad) { cand[r][c] = false; return { tier: 3, text: "假設在這格放貓，往下推幾步會出現矛盾，所以這格可以標叉", focus: [], removed: [[r, c]], placed: null }; }
     }
-    return false;
+    return null;
   }
+  function step() { return t1() || t2() || t3() || t4() || t5(); }
+  return { n, place, step, contradiction, get placed() { return placed; }, get cats() { return catAt; }, isCand: (r, c) => cand[r][c] };
+}
 
-  while (placed < n) {
-    if (contradiction()) return { tier: 4, solved: false };
-    if (t1() || t2()) continue;
-    if (t3() || t4()) { tier = Math.max(tier, 2); continue; }
-    if (t5()) { tier = Math.max(tier, 3); continue; }
-    return { tier: 4, solved: false };
+function rateDifficulty(region) {
+  const s = makeSolver(region);
+  let tier = 1;
+  while (s.placed < s.n) {
+    if (s.contradiction()) return { tier: 4, solved: false };
+    const st = s.step();
+    if (!st) return { tier: 4, solved: false };
+    tier = Math.max(tier, st.tier);
   }
-  return { tier, solved: true, cats: catAt };
+  return { tier, solved: true, cats: s.cats };
+}
+
+// 提示：從目前已找到的貓出發，找出第一個「玩家還沒標到」的推理步驟
+function nextHint(region, marks, known) {
+  const s = makeSolver(region), n = s.n;
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (marks[r][c] === CAT) s.place(r, c);
+  for (let guard = 0; guard < 200 && s.placed < n; guard++) {
+    const st = s.step();
+    if (!st) return null;
+    if (st.placed && marks[st.placed[0]][st.placed[1]] !== CAT) return st;
+    const fresh = st.removed.filter(([r, c]) => marks[r][c] === EMPTY && !known.has(r * n + c));
+    if (fresh.length) return { ...st, removed: fresh };
+  }
+  return null;
 }
 
 // 關卡 → 盤面大小
@@ -544,6 +575,7 @@ function assignColors(region) {
 
 const EMPTY = 0, MARK_X = 1, CAT = 2, WRONG = 3;   // CAT 與 WRONG 放下後就鎖定
 const MAX_MISTAKES = 5;
+const MAX_HINTS = 3, HINT_COST = 30;
 
 const $ = id => document.getElementById(id);
 const boardEl = $("board"), statusEl = $("status"), timerEl = $("timer");
@@ -551,7 +583,7 @@ const boardEl = $("board"), statusEl = $("status"), timerEl = $("timer");
 let store = loadStore();
 if (!store.players) store.players = {};
 let level = 1;
-let puzzle = null, marks = null, won = false, lost = false, mistakes = 0;
+let puzzle = null, marks = null, won = false, lost = false, mistakes = 0, hintsUsed = 0, hintTimer = null, lastHintKey = "";
 let startTime = null, elapsed = 0, timerId = null;
 
 function loadStore() {
@@ -667,9 +699,9 @@ const sfx = {
 
 /* ---------------- 參賽者與積分 ---------------- */
 const BASE_SCORE = { 1: 100, 2: 200, 3: 300 };
-function calcScore(tier, mistakes, ms) {
+function calcScore(tier, mistakes, ms, hints = 0) {
   const bonus = Math.round(50 * Math.max(0, 60000 - ms) / 60000);   // 1 分鐘內完成，越快加越多
-  return Math.max(0, BASE_SCORE[tier] - 20 * mistakes + bonus);
+  return Math.max(0, BASE_SCORE[tier] - 20 * mistakes - HINT_COST * hints + bonus);
 }
 function currentPlayer() { return store.current && store.players[store.current] ? store.players[store.current] : null; }
 function totalOf(p) { return Object.values(p.done || {}).reduce((s, d) => s + (d.score || 0), 0); }
@@ -720,7 +752,7 @@ function loadLevel(lv) {
   setTimeout(() => {
     puzzle = generateLevel(level);
     marks = Array.from({ length: puzzle.n }, () => new Array(puzzle.n).fill(EMPTY));
-    won = lost = false; mistakes = 0; stopTimer(); elapsed = 0; timerEl.textContent = "0:00";
+    won = lost = false; mistakes = 0; hintsUsed = 0; lastHintKey = ""; stopTimer(); elapsed = 0; timerEl.textContent = "0:00";
     $("levelNum").textContent = level;
     $("levelInfo").textContent = `${TIER_NAME[puzzle.tier]} · ${puzzle.n}×${puzzle.n}`;
     $("gotoLevel").value = level;
@@ -864,29 +896,31 @@ function render() {
   }
   renderLives();
   if (cats === n) {
-    won = true; stopTimer(); sfx.win();
+    won = true; stopTimer(); sfx.win(); clearTimeout(hintTimer); hintTimer = null;
     boardEl.classList.add("won");
     statusEl.className = "status win";
-    const score = calcScore(puzzle.tier, mistakes, elapsed);
+    const score = calcScore(puzzle.tier, mistakes, elapsed, hintsUsed);
     const p = currentPlayer();
     let msg = `🎉 過關！用時 ${fmt(elapsed)}，得 ${score} 分`;
     if (p) {
       const prev = p.done[level];
-      if (!prev || score > prev.score) { p.done[level] = { score, time: elapsed, mistakes }; msg += prev ? "，刷新本關最高分！" : ""; }
+      if (!prev || score > prev.score) { p.done[level] = { score, time: elapsed, mistakes, hints: hintsUsed }; msg += prev ? "，刷新本關最高分！" : ""; }
       else msg += `（本關最高 ${prev.score} 分）`;
       saveStore(); renderPlayer();
     }
     statusEl.textContent = msg;
   } else if (mistakes >= MAX_MISTAKES) {
-    lost = true; stopTimer(); sfx.lose();
+    lost = true; stopTimer(); sfx.lose(); clearTimeout(hintTimer); hintTimer = null;
     boardEl.classList.add("won");
     statusEl.className = "status lose";
     statusEl.textContent = `😿 錯了 ${MAX_MISTAKES} 次，挑戰失敗，按「重來」再試`;
-  } else {
+  } else if (!hintTimer) {
     boardEl.classList.remove("won");
     statusEl.className = "status";
-    statusEl.textContent = `已找到 ${cats} / ${n} 隻貓` + (mistakes ? `，錯 ${mistakes} 次` : "");
+    statusEl.textContent = `已找到 ${cats} / ${n} 隻貓` + (mistakes ? `，錯 ${mistakes} 次` : "") + (hintsUsed ? `，提示 ${hintsUsed} 次` : "");
   }
+  $("hintLeft").textContent = MAX_HINTS - hintsUsed;
+  $("btnHint").disabled = won || lost || hintsUsed >= MAX_HINTS;
   updateProgressInfo();
 }
 
@@ -901,7 +935,7 @@ function updateProgressInfo() {
 
 $("btnPrev").onclick = () => { if (level > 1) loadLevel(level - 1); };
 $("btnNext").onclick = () => loadLevel(level + 1);
-$("btnReset").onclick = () => { marks.forEach(row => row.fill(EMPTY)); won = lost = false; mistakes = 0; stopTimer(); elapsed = 0; timerEl.textContent = "0:00"; render(); };
+$("btnReset").onclick = () => { marks.forEach(row => row.fill(EMPTY)); won = lost = false; mistakes = 0; hintsUsed = 0; lastHintKey = ""; stopTimer(); elapsed = 0; timerEl.textContent = "0:00"; render(); };
 $("btnSettings").onclick = () => { $("settings").hidden = !$("settings").hidden; };
 $("btnGoto").onclick = () => loadLevel(+$("gotoLevel").value || 1);
 $("autoMark").onchange = () => { store.autoMark = $("autoMark").checked; saveStore(); render(); };
@@ -915,6 +949,41 @@ $("btnMeowTest").onclick = async () => {
   if (wasOff) $("sound").checked = false;
 };
 $("btnClear").onclick = () => { if (confirm("確定清除所有參賽者與進度？")) { store = { players: {} }; saveStore(); renderPlayer(); $("settings").hidden = true; openBoard(); } };
+
+// 提示：標出下一步可以確定標叉的格子並說明理由，不直接給貓的位置
+$("btnHint").onclick = () => {
+  if (won || lost || hintsUsed >= MAX_HINTS || !currentPlayer()) return;
+  const hint = nextHint(puzzle.region, marks, autoMarked());
+  // 同一個提示（玩家還沒照做）重複按不再扣分
+  const key = hint ? JSON.stringify([hint.text, hint.focus, hint.removed, hint.placed]) : "none";
+  const repeat = key === lastHintKey;
+  if (!repeat) hintsUsed++;
+  lastHintKey = key;
+  startTimer();
+  for (const el of boardEl.querySelectorAll(".hintFocus, .hintCell")) el.classList.remove("hintFocus", "hintCell");
+  if (!hint) {
+    showHintText("目前沒有更多可以確定的步驟，先照著已經標的叉想想看");
+  } else {
+    for (const [r, c] of hint.removed) if (marks[r][c] === EMPTY) marks[r][c] = MARK_X;
+    render();
+    const cellEl = (r, c) => boardEl.children[r * puzzle.n + c];
+    for (const [r, c] of hint.focus) cellEl(r, c).classList.add("hintFocus");
+    for (const [r, c] of hint.removed) cellEl(r, c).classList.add("hintCell");
+    showHintText("💡 " + hint.text + (repeat ? "（同上一個提示，不扣分）" : `（−${HINT_COST} 分）`));
+    sfx.click();
+  }
+  render();
+};
+function showHintText(text) {
+  clearTimeout(hintTimer);
+  statusEl.className = "status hint";
+  statusEl.textContent = text;
+  hintTimer = setTimeout(() => {
+    hintTimer = null;
+    for (const el of boardEl.querySelectorAll(".hintFocus, .hintCell")) el.classList.remove("hintFocus", "hintCell");
+    render();
+  }, 6000);
+}
 
 $("btnBoard").onclick = openBoard;
 $("btnClose").onclick = closeBoard;
