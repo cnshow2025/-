@@ -462,8 +462,9 @@ function generateLevel(level) {
 /* ---------------- 遊戲狀態與畫面 ---------------- */
 
 // 10 個色相各不相同的顏色：紅、橙、黃、草綠、深綠、青、藍、紫、粉紅、棕
-const PALETTE = ["#cc2f26", "#ea6a12", "#d4a300", "#5aa81a", "#176f3a",
-                 "#1197a2", "#1e56d6", "#7433c4", "#dc3f96", "#6e4522"];
+// 亮度與飽和度略降，減少眼睛疲勞；色相仍各不相同
+const PALETTE = ["#a6352f", "#c2561c", "#a88f14", "#508922", "#1b5b34",
+                 "#1a7b83", "#2455b8", "#6b34a8", "#c33684", "#5b3d24"];
 
 function hexToRgb(h) { return [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); }
 function colorDist(a, b) {
