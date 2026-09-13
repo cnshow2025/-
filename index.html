@@ -41,18 +41,18 @@
   .rule .mini i.c { background: #f3e2d9; }
 
   .boardwrap { background: var(--card); border-radius: 18px; padding: 12px; }
-  .board { display: grid; gap: var(--tile-gap); width: 100%; aspect-ratio: 1; touch-action: manipulation; }
+  .board { display: grid; gap: var(--tile-gap); width: 100%; aspect-ratio: 1; touch-action: none; }
   .cell { border-radius: 8px; position: relative; display: flex; align-items: center; justify-content: center;
     min-width: 0; min-height: 0; overflow: hidden; cursor: pointer; font-size: clamp(14px, 5vw, 30px); line-height: 1; transition: transform .08s; }
   .cell:active { transform: scale(.93); }
   .cell .mark { pointer-events: none; }
   /* 叉叉：用兩條斜線畫，佔方框 90%，隨格子大小縮放 */
-  .cell .mark.x { position: absolute; inset: 5%; color: #5a3535; }
+  .cell .mark.x { position: absolute; inset: 5%; color: #fff; }
   .cell .mark.x::before, .cell .mark.x::after { content: ""; position: absolute; left: 50%; top: -20.7%;
-    width: 11%; height: 141.4%; background: currentColor; border-radius: 999px;
-    transform: translateX(-50%) rotate(45deg); }
+    width: 16%; height: 141.4%; background: currentColor; border-radius: 999px;
+    box-shadow: 0 0 2px rgba(0,0,0,.15); transform: translateX(-50%) rotate(45deg); }
   .cell .mark.x::after { transform: translateX(-50%) rotate(-45deg); }
-  .cell .mark.x.auto { opacity: .4; }
+  .cell .mark.x.auto { opacity: .5; }
   /* 貓：字級依格子大小計算，再由 fitCats() 量測後縮放到佔方框 90% */
   .cell .mark.cat { display: block; line-height: 1; font-size: calc(var(--cell, 40px) * 0.6);
     transform-origin: center; will-change: transform; }
@@ -540,7 +540,9 @@ function buildBoard() {
 // 點一下：切換叉叉（空 ↔ 叉）；連點兩下：放貓。
 // 放對的貓與放錯的格子都會鎖定，之後點了沒有反應。
 let lastTap = { key: -1, time: 0 };
+let suppressClick = false;   // 剛完成一次拖曳時，忽略隨後的 click
 boardEl.addEventListener("click", e => {
+  if (suppressClick) { suppressClick = false; return; }
   const cell = e.target.closest(".cell");
   if (!cell || won || lost) return;
   const r = +cell.dataset.r, c = +cell.dataset.c, key = r * puzzle.n + c, now = Date.now();
@@ -556,6 +558,40 @@ boardEl.addEventListener("click", e => {
   startTimer();
   render();
 });
+
+// 拖曳：手指滑過的格子全部標叉；從已有叉的格子開始滑則是清除叉
+let drag = null;
+function cellAt(x, y) {
+  const el = document.elementFromPoint(x, y);
+  const cell = el && el.closest(".cell");
+  return cell && boardEl.contains(cell) ? cell : null;
+}
+function dragApply(cell) {
+  const r = +cell.dataset.r, c = +cell.dataset.c;
+  if (marks[r][c] === EMPTY || marks[r][c] === MARK_X) marks[r][c] = drag.mode;
+}
+boardEl.addEventListener("pointerdown", e => {
+  const cell = e.target.closest(".cell");
+  if (!cell || won || lost) return;
+  const r = +cell.dataset.r, c = +cell.dataset.c;
+  drag = { start: cell, last: cell, active: false, mode: marks[r][c] === MARK_X ? EMPTY : MARK_X };
+});
+window.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const cell = cellAt(e.clientX, e.clientY);
+  if (!cell || cell === drag.last) return;
+  if (!drag.active) { drag.active = true; dragApply(drag.start); }   // 離開起點才算拖曳
+  dragApply(cell);
+  drag.last = cell;
+  startTimer();
+  render();
+});
+function dragEnd() {
+  if (drag && drag.active) { suppressClick = true; lastTap = { key: -1, time: 0 }; }
+  drag = null;
+}
+window.addEventListener("pointerup", dragEnd);
+window.addEventListener("pointercancel", dragEnd);
 
 // 自動標叉：被任何一隻貓「攻擊」到的空格
 function autoMarked() {
