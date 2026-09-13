@@ -594,7 +594,15 @@ const sfx = {
   // 放錯：兩聲下降的「嘟嘟」，音高夠高手機喇叭才聽得到
   wrong() { const c = audio(); if (c) { tone(c, { type: "square", freq: 420, to: 300, dur: 0.14, vol: 0.22, lowpass: 2500 });
                                        tone(c, { type: "square", freq: 300, to: 200, dur: 0.22, vol: 0.22, at: 0.16, lowpass: 2500 }); } },
-  win() { const c = audio(); if (c) [523, 659, 784, 1047].forEach((f, i) => tone(c, { freq: f, dur: 0.18, vol: 0.18, at: i * 0.12 })); },
+  // 過關：等喵（約 0.6 秒）播完再開始，約 1.6 秒的上行旋律，最後一個音拉長
+  win() {
+    const c = audio(); if (!c) return;
+    const start = 0.7;
+    const notes = [[523, 0, 0.16], [659, 0.15, 0.16], [784, 0.30, 0.16], [1047, 0.45, 0.22],
+                   [784, 0.70, 0.14], [1047, 0.84, 0.14], [1319, 0.98, 0.6]];
+    notes.forEach(([f, at, dur]) => tone(c, { freq: f, dur, vol: 0.2, at: start + at }));
+    notes.forEach(([f, at, dur]) => tone(c, { type: "triangle", freq: f / 2, dur, vol: 0.08, at: start + at }));
+  },
   lose() { const c = audio(); if (c) [392, 330, 262].forEach((f, i) => tone(c, { type: "triangle", freq: f, dur: 0.25, vol: 0.15, at: i * 0.2 })); },
 };
 
