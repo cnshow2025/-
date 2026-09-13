@@ -76,6 +76,8 @@
   .cell.hintCell { animation: hintPulse 1s ease-in-out 4; }
   @keyframes hintPulse { 0%, 100% { box-shadow: inset 0 0 0 3px #ffd54a; } 50% { box-shadow: inset 0 0 0 6px #ffd54a; transform: scale(1.06); } }
   .status.hint { color: #a3660a; font-weight: 600; }
+  .status.hint .ok { margin-left: 8px; border: 0; border-radius: 10px; padding: 4px 12px; font-size: 14px;
+    background: #ffd54a; color: #5a3a00; font-weight: 700; cursor: pointer; }
   .cell.wrong { box-shadow: inset 0 0 0 3px var(--accent); }
   .cell.wrong .mark { animation: shake .3s; }
   /* 放錯：白叉加紅邊，任何底色上都看得見 */
@@ -583,7 +585,7 @@ const boardEl = $("board"), statusEl = $("status"), timerEl = $("timer");
 let store = loadStore();
 if (!store.players) store.players = {};
 let level = 1;
-let puzzle = null, marks = null, won = false, lost = false, mistakes = 0, hintsUsed = 0, hintTimer = null, lastHintKey = "";
+let puzzle = null, marks = null, won = false, lost = false, mistakes = 0, hintsUsed = 0, hintActive = false, lastHintKey = "";
 let startTime = null, elapsed = 0, timerId = null;
 
 function loadStore() {
@@ -752,7 +754,7 @@ function loadLevel(lv) {
   setTimeout(() => {
     puzzle = generateLevel(level);
     marks = Array.from({ length: puzzle.n }, () => new Array(puzzle.n).fill(EMPTY));
-    won = lost = false; mistakes = 0; hintsUsed = 0; lastHintKey = ""; stopTimer(); elapsed = 0; timerEl.textContent = "0:00";
+    won = lost = false; mistakes = 0; hintsUsed = 0; lastHintKey = ""; hintActive = false; stopTimer(); elapsed = 0; timerEl.textContent = "0:00";
     $("levelNum").textContent = level;
     $("levelInfo").textContent = `${TIER_NAME[puzzle.tier]} · ${puzzle.n}×${puzzle.n}`;
     $("gotoLevel").value = level;
@@ -896,7 +898,7 @@ function render() {
   }
   renderLives();
   if (cats === n) {
-    won = true; stopTimer(); sfx.win(); clearTimeout(hintTimer); hintTimer = null;
+    won = true; stopTimer(); sfx.win(); hintActive = false;
     boardEl.classList.add("won");
     statusEl.className = "status win";
     const score = calcScore(puzzle.tier, mistakes, elapsed, hintsUsed);
@@ -910,11 +912,11 @@ function render() {
     }
     statusEl.textContent = msg;
   } else if (mistakes >= MAX_MISTAKES) {
-    lost = true; stopTimer(); sfx.lose(); clearTimeout(hintTimer); hintTimer = null;
+    lost = true; stopTimer(); sfx.lose(); hintActive = false;
     boardEl.classList.add("won");
     statusEl.className = "status lose";
     statusEl.textContent = `😿 錯了 ${MAX_MISTAKES} 次，挑戰失敗，按「重來」再試`;
-  } else if (!hintTimer) {
+  } else if (!hintActive) {
     boardEl.classList.remove("won");
     statusEl.className = "status";
     statusEl.textContent = `已找到 ${cats} / ${n} 隻貓` + (mistakes ? `，錯 ${mistakes} 次` : "") + (hintsUsed ? `，提示 ${hintsUsed} 次` : "");
@@ -935,7 +937,7 @@ function updateProgressInfo() {
 
 $("btnPrev").onclick = () => { if (level > 1) loadLevel(level - 1); };
 $("btnNext").onclick = () => loadLevel(level + 1);
-$("btnReset").onclick = () => { marks.forEach(row => row.fill(EMPTY)); won = lost = false; mistakes = 0; hintsUsed = 0; lastHintKey = ""; stopTimer(); elapsed = 0; timerEl.textContent = "0:00"; render(); };
+$("btnReset").onclick = () => { marks.forEach(row => row.fill(EMPTY)); won = lost = false; mistakes = 0; hintsUsed = 0; lastHintKey = ""; hintActive = false; stopTimer(); elapsed = 0; timerEl.textContent = "0:00"; render(); };
 $("btnSettings").onclick = () => { $("settings").hidden = !$("settings").hidden; };
 $("btnGoto").onclick = () => loadLevel(+$("gotoLevel").value || 1);
 $("autoMark").onchange = () => { store.autoMark = $("autoMark").checked; saveStore(); render(); };
@@ -974,15 +976,21 @@ $("btnHint").onclick = () => {
   }
   render();
 };
+// 提示會一直顯示，按「知道了」才消失
 function showHintText(text) {
-  clearTimeout(hintTimer);
+  hintActive = true;
   statusEl.className = "status hint";
   statusEl.textContent = text;
-  hintTimer = setTimeout(() => {
-    hintTimer = null;
-    for (const el of boardEl.querySelectorAll(".hintFocus, .hintCell")) el.classList.remove("hintFocus", "hintCell");
-    render();
-  }, 6000);
+  const ok = document.createElement("button");
+  ok.className = "ok"; ok.textContent = "知道了";
+  ok.onclick = clearHint;
+  statusEl.appendChild(ok);
+}
+function clearHint() {
+  if (!hintActive) return;
+  hintActive = false;
+  for (const el of boardEl.querySelectorAll(".hintFocus, .hintCell")) el.classList.remove("hintFocus", "hintCell");
+  render();
 }
 
 $("btnBoard").onclick = openBoard;
