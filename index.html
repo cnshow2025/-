@@ -54,9 +54,9 @@
     transform: translateX(-50%) rotate(45deg); }
   .cell .mark.x::after { transform: translateX(-50%) rotate(-45deg); }
   .cell .mark.x.auto { opacity: 1; }
-  /* 貓：SVG 剪影填上原本方框的顏色，放貓後方框變透明，貓佔滿整格 */
-  .cell.hascat { background: transparent !important; }
-  .cell .mark.cat { position: absolute; inset: -3%; }
+  /* 貓：SVG 剪影填上原本方框的顏色；放貓後方框改為白底、保留同色粗邊框，格子仍完整 */
+  .cell.hascat { background: var(--card) !important; box-shadow: inset 0 0 0 3px var(--tile); }
+  .cell .mark.cat { position: absolute; inset: 6%; }
   .cell .mark.cat svg { width: 100%; height: 100%; display: block; }
   .cell.locked { cursor: default; }
   .cell.wrong { box-shadow: inset 0 0 0 3px var(--accent); }
@@ -610,6 +610,7 @@ function buildBoard() {
     const d = document.createElement("div");
     d.className = "cell";
     d.style.background = puzzle.colors[puzzle.region[r][c]];
+    d.style.setProperty("--tile", puzzle.colors[puzzle.region[r][c]]);
     d.dataset.r = r; d.dataset.c = c;
     d.innerHTML = '<span class="mark"></span>';
     boardEl.appendChild(d);
