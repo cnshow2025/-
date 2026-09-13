@@ -271,15 +271,69 @@ function generateLevel(level) {
   for (let attempt = 0; attempt < 200; attempt++) {
     const cats = randomPlacement(n, rng);
     const region = growRegions(n, cats, rng);
-    if (repairToUnique(region, cats, rng, 60)) return { n, region, solution: cats, attempts: attempt + 1 };
+    if (repairToUnique(region, cats, rng, 60))
+      return { n, region, solution: cats, colors: assignColors(region), attempts: attempt + 1 };
   }
   throw new Error("找不到唯一解的題目");
 }
 
 /* ---------------- 遊戲狀態與畫面 ---------------- */
 
-const PALETTE = ["#a3e07f", "#a8714e", "#c8788f", "#3fa3b0", "#f2a0e8",
-                 "#f9dc7f", "#a9c8ea", "#2f9a5a", "#8b78d8", "#d1aa00"];
+// 10 個色相各不相同的顏色：紅、橙、黃、草綠、深綠、青、藍、紫、粉紅、棕
+const PALETTE = ["#e0524d", "#f59a23", "#f5e04c", "#93d24a", "#1f8f4e",
+                 "#5ccfd4", "#3b6fe0", "#9b62d9", "#f78fc3", "#8a5a3c"];
+
+function hexToRgb(h) { return [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); }
+function colorDist(a, b) {
+  const [r1, g1, b1] = hexToRgb(a), [r2, g2, b2] = hexToRgb(b);
+  // 加權 RGB 距離，接近人眼感受
+  return Math.sqrt(2 * (r1 - r2) ** 2 + 4 * (g1 - g2) ** 2 + 3 * (b1 - b2) ** 2);
+}
+
+// 幫每個區域挑顏色：相鄰區域的顏色差異要盡量大
+function assignColors(region) {
+  const n = region.length;
+  const adj = Array.from({ length: n }, () => new Set());
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+    const k = region[r][c];
+    for (const [rr, cc] of [[r + 1, c], [r, c + 1], [r + 1, c + 1], [r + 1, c - 1]]) {
+      if (rr < 0 || rr >= n || cc < 0 || cc >= n) continue;
+      const k2 = region[rr][cc];
+      if (k2 !== k) { adj[k].add(k2); adj[k2].add(k); }
+    }
+  }
+  // 第一步：貪婪法，鄰居最多的區域先挑
+  const order = [...Array(n).keys()].sort((a, b) => adj[b].size - adj[a].size);
+  const color = new Array(n).fill(null), used = new Set();
+  for (const k of order) {
+    let best = null, bestScore = -1;
+    for (const col of PALETTE) {
+      if (used.has(col)) continue;
+      let score = Infinity;
+      for (const k2 of adj[k]) if (color[k2]) score = Math.min(score, colorDist(col, color[k2]));
+      if (score > bestScore) { bestScore = score; best = col; }
+    }
+    color[k] = best; used.add(best);
+  }
+  // 第二步：兩兩交換顏色，只要相鄰區域的最小色差變大就接受
+  const worst = () => {
+    let m = Infinity;
+    for (let k = 0; k < n; k++) for (const k2 of adj[k]) m = Math.min(m, colorDist(color[k], color[k2]));
+    return m;
+  };
+  let improved = true, cur = worst();
+  while (improved) {
+    improved = false;
+    for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) {
+      [color[a], color[b]] = [color[b], color[a]];
+      const w = worst();
+      if (w > cur) { cur = w; improved = true; }
+      else [color[a], color[b]] = [color[b], color[a]];
+    }
+  }
+  return color;
+}
+
 const EMPTY = 0, MARK_X = 1, CAT = 2, WRONG = 3;   // CAT 與 WRONG 放下後就鎖定
 const MAX_MISTAKES = 5;
 
@@ -335,7 +389,7 @@ function buildBoard() {
   for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
     const d = document.createElement("div");
     d.className = "cell";
-    d.style.background = PALETTE[puzzle.region[r][c]];
+    d.style.background = puzzle.colors[puzzle.region[r][c]];
     d.dataset.r = r; d.dataset.c = c;
     d.innerHTML = '<span class="mark"></span>';
     boardEl.appendChild(d);
