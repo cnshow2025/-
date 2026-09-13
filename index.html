@@ -171,6 +171,17 @@
   </label>
   <label><span>自動標叉（放貓後自動在同行、同列、同色與相鄰格標叉）</span><input type="checkbox" id="autoMark" checked></label>
   <label><span>音效</span><input type="checkbox" id="sound" checked></label>
+  <label><span>貓叫聲</span>
+    <span class="row">
+      <select id="meowPick" style="font-size:15px;padding:6px 8px;border:1px solid #e6d6cd;border-radius:8px">
+        <option value="0">貓叫 1（短促，0.6 秒）</option>
+        <option value="1">貓叫 2（輕柔，0.8 秒）</option>
+        <option value="2">貓叫 3（拉長，0.9 秒）</option>
+        <option value="3">貓叫 4（響亮，1 秒）</option>
+      </select>
+      <button class="btn" id="btnMeowTest" style="flex:none;padding:6px 12px;font-size:13px">試聽</button>
+    </span>
+  </label>
   <div class="small" id="progressInfo"></div>
   <label><span class="small">清除所有進度</span><button class="btn" id="btnClear" style="flex:none;padding:6px 12px;font-size:13px">清除</button></label>
 </div>
@@ -566,9 +577,19 @@ const MEOW_FILES = ["sounds/meow1.wav", "sounds/meow2.wav", "sounds/meow3.wav", 
 let meowBuffers = [], meowLoading = false, lastMeowDur = 0.6;
 async function loadMeows(ctx) {
   if (meowLoading) return; meowLoading = true;
-  for (const f of MEOW_FILES) {
-    try { const r = await fetch(f); meowBuffers.push(await ctx.decodeAudioData(await r.arrayBuffer())); } catch {}
-  }
+  const list = await Promise.all(MEOW_FILES.map(async f => {
+    try { const r = await fetch(f); return await ctx.decodeAudioData(await r.arrayBuffer()); } catch { return null; }
+  }));
+  meowBuffers = list;
+}
+function chosenMeow() { return meowBuffers[+$("meowPick").value] || null; }
+// 播放選定的貓叫，回傳長度（秒）；音檔還沒載好就用合成喵
+function playMeow(c) {
+  const b = chosenMeow();
+  if (!b) { sfx.meow(); return 0.6; }
+  const src = c.createBufferSource(), g = c.createGain();
+  src.buffer = b; g.gain.value = 0.9; src.connect(g); g.connect(c.destination); src.start();
+  return b.duration;
 }
 function tone(ctx, { type = "sine", freq = 440, to = null, dur = 0.1, vol = 0.2, at = 0, lowpass = null }) {
   const osc = ctx.createOscillator(), g = ctx.createGain();
@@ -608,13 +629,7 @@ const sfx = {
   // 找到貓：先播真實貓叫，叫完再唸一句稱讚（過關那一隻不唸，讓位給過關旋律）
   found(isWin) {
     const c = audio();
-    lastMeowDur = 0.6;
-    if (c && meowBuffers.length) {
-      const b = meowBuffers[Math.floor(Math.random() * meowBuffers.length)];
-      const src = c.createBufferSource(), g = c.createGain();
-      src.buffer = b; g.gain.value = 0.9; src.connect(g); g.connect(c.destination); src.start();
-      lastMeowDur = b.duration;
-    } else if (c) sfx.meow();
+    lastMeowDur = c ? playMeow(c) : 0.6;
     if (!isWin) setTimeout(() => speak(PRAISE[Math.floor(Math.random() * PRAISE.length)]), lastMeowDur * 1000 + 60);
   },
   click() { const c = audio(); if (c) tone(c, { type: "triangle", freq: 900, to: 500, dur: 0.06, vol: 0.15 }); },
@@ -891,6 +906,14 @@ $("btnSettings").onclick = () => { $("settings").hidden = !$("settings").hidden;
 $("btnGoto").onclick = () => loadLevel(+$("gotoLevel").value || 1);
 $("autoMark").onchange = () => { store.autoMark = $("autoMark").checked; saveStore(); render(); };
 $("sound").onchange = () => { store.sound = $("sound").checked; saveStore(); if (store.sound) sfx.click(); };
+$("meowPick").onchange = () => { store.meow = +$("meowPick").value; saveStore(); $("btnMeowTest").click(); };
+$("btnMeowTest").onclick = async () => {
+  const wasOff = !$("sound").checked;
+  if (wasOff) $("sound").checked = true;          // 試聽時暫時開聲音
+  const c = audio();
+  if (c) { if (!chosenMeow()) { await loadMeows(c); await new Promise(r => setTimeout(r, 300)); } playMeow(c); }
+  if (wasOff) $("sound").checked = false;
+};
 $("btnClear").onclick = () => { if (confirm("確定清除所有參賽者與進度？")) { store = { players: {} }; saveStore(); renderPlayer(); $("settings").hidden = true; openBoard(); } };
 
 $("btnBoard").onclick = openBoard;
@@ -919,6 +942,7 @@ $("ranks").addEventListener("click", e => {
 
 if (store.autoMark === false) $("autoMark").checked = false;
 if (store.sound === false) $("sound").checked = false;
+$("meowPick").value = String(store.meow ?? 0);
 renderPlayer();
 if (currentPlayer()) loadLevel(currentPlayer().level);
 else { loadLevel(1); openBoard(); }
