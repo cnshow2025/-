@@ -1,0 +1,14 @@
+貓叫聲音檔來源
+
+來源：Benjamin Burnes（abstractionmusic.com）「Micro Pack - Cat Meows」
+取自：https://github.com/lavenderdotpet/CC0-Public-Domain-Sounds
+      資料夾 "Micro Pack - Cat Meows"
+授權：CC0 1.0 Universal（公有領域，可自由使用、修改、商用，不要求署名）
+
+原始檔案對應：
+  meow1.wav ← Cat Meows - Tiny Tito.wav
+  meow2.wav ← Cat Meows - Food Time 2.wav
+  meow3.wav ← Cat Meows - Food Time 8.wav
+  meow4.wav ← Cat Meows - Food Time 12.wav
+
+處理：轉為單聲道 22050 Hz、修掉前後靜音、音量正規化。

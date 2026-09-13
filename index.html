@@ -557,8 +557,18 @@ function audio() {
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === "suspended") audioCtx.resume();
+    loadMeows(audioCtx);
     return audioCtx;
   } catch { return null; }
+}
+// 真實貓叫聲（CC0，見 sounds/LICENSE.txt）：第一次啟用聲音時載入
+const MEOW_FILES = ["sounds/meow1.wav", "sounds/meow2.wav", "sounds/meow3.wav", "sounds/meow4.wav"];
+let meowBuffers = [], meowLoading = false, lastMeowDur = 0.6;
+async function loadMeows(ctx) {
+  if (meowLoading) return; meowLoading = true;
+  for (const f of MEOW_FILES) {
+    try { const r = await fetch(f); meowBuffers.push(await ctx.decodeAudioData(await r.arrayBuffer())); } catch {}
+  }
 }
 function tone(ctx, { type = "sine", freq = 440, to = null, dur = 0.1, vol = 0.2, at = 0, lowpass = null }) {
   const osc = ctx.createOscillator(), g = ctx.createGain();
@@ -595,8 +605,18 @@ function speak(text) {
 }
 
 const sfx = {
-  // 找到貓：唸一句稱讚；裝置不支援語音時改為喵
-  found() { if (!speak(PRAISE[Math.floor(Math.random() * PRAISE.length)])) sfx.meow(); },
+  // 找到貓：先播真實貓叫，叫完再唸一句稱讚（過關那一隻不唸，讓位給過關旋律）
+  found(isWin) {
+    const c = audio();
+    lastMeowDur = 0.6;
+    if (c && meowBuffers.length) {
+      const b = meowBuffers[Math.floor(Math.random() * meowBuffers.length)];
+      const src = c.createBufferSource(), g = c.createGain();
+      src.buffer = b; g.gain.value = 0.9; src.connect(g); g.connect(c.destination); src.start();
+      lastMeowDur = b.duration;
+    } else if (c) sfx.meow();
+    if (!isWin) setTimeout(() => speak(PRAISE[Math.floor(Math.random() * PRAISE.length)]), lastMeowDur * 1000 + 60);
+  },
   click() { const c = audio(); if (c) tone(c, { type: "triangle", freq: 900, to: 500, dur: 0.06, vol: 0.15 }); },
   meow() {
     const c = audio(); if (!c) return;
@@ -621,7 +641,7 @@ const sfx = {
   // 過關：等喵（約 0.6 秒）播完再開始，約 1.6 秒的上行旋律，最後一個音拉長
   win() {
     const c = audio(); if (!c) return;
-    const start = 0.7;
+    const start = lastMeowDur + 0.15;
     const notes = [[523, 0, 0.16], [659, 0.15, 0.16], [784, 0.30, 0.16], [1047, 0.45, 0.22],
                    [784, 0.70, 0.14], [1047, 0.84, 0.14], [1319, 0.98, 0.6]];
     notes.forEach(([f, at, dur]) => tone(c, { freq: f, dur, vol: 0.2, at: start + at }));
@@ -725,7 +745,11 @@ boardEl.addEventListener("click", e => {
   if (marks[r][c] === CAT || marks[r][c] === WRONG) return;
   if (lastTap.key === key && now - lastTap.time < 350) {
     lastTap = { key: -1, time: 0 };
-    if (puzzle.solution[r] === c) { marks[r][c] = CAT; sfx.found(); }     // 放對：鎖定，唸一句稱讚
+    if (puzzle.solution[r] === c) {                                        // 放對：鎖定，貓叫 + 稱讚
+      marks[r][c] = CAT;
+      const found = marks.flat().filter(m => m === CAT).length;
+      sfx.found(found === puzzle.n);
+    }
     else { marks[r][c] = WRONG; mistakes++; sfx.wrong(); }              // 放錯：紅色錯誤並鎖定
   } else {
     marks[r][c] = marks[r][c] === EMPTY ? MARK_X : EMPTY;
